@@ -412,3 +412,4 @@ envsync/
         └── envsync.yml            CI/CD pipeline
 ```
 Development branch 
+Version 1.0.0 
