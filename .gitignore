@@ -1,0 +1,26 @@
+# ── EnvSync .gitignore ────────────────────────────────────────────
+
+# Environment files — NEVER commit these
+.env
+.env.*
+!.env.example
+
+# Built binary
+envsync
+bin/
+dist/
+
+# Snapshots contain encrypted env state
+.envsync/
+
+# Go
+vendor/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp

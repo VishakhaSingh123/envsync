@@ -1,0 +1,108 @@
+version: "3.9"
+
+# ── EnvSync Docker Compose ────────────────────────────────────────────────────
+# Provides envsync CLI + optional HashiCorp Vault for secret management.
+#
+# Quick start:
+#   docker compose run envsync diff dev staging
+#   docker compose run envsync audit --env staging
+#   docker compose up vault              # start local Vault
+#
+# Set your encryption key first:
+#   export ENVSYNC_KEY=$(openssl rand -base64 32)
+
+services:
+
+  # ── EnvSync CLI ─────────────────────────────────────────────────────────────
+  envsync:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: envsync:latest
+    container_name: envsync
+    environment:
+      - ENVSYNC_KEY=${ENVSYNC_KEY}
+      - VAULT_ADDR=http://vault:8200
+      - VAULT_TOKEN=${VAULT_TOKEN:-root}
+    volumes:
+      # Mount your project directory into /workspace
+      - .:/workspace
+      - envsync-snapshots:/workspace/.envsync/snapshots
+    working_dir: /workspace
+    depends_on:
+      vault:
+        condition: service_healthy
+    networks:
+      - envsync-net
+    # Override entrypoint for interactive use:
+    # docker compose run envsync diff dev staging
+    entrypoint: ["/envsync"]
+    command: ["--help"]
+
+  # ── HashiCorp Vault (local dev) ─────────────────────────────────────────────
+  vault:
+    image: hashicorp/vault:1.15
+    container_name: envsync-vault
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=${VAULT_TOKEN:-root}
+      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+    ports:
+      - "8200:8200"
+    cap_add:
+      - IPC_LOCK
+    volumes:
+      - vault-data:/vault/data
+      - ./scripts/vault-init.sh:/vault/config/init.sh:ro
+    networks:
+      - envsync-net
+    healthcheck:
+      test: ["CMD", "vault", "status", "-address=http://127.0.0.1:8200"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    command: server -dev
+
+  # ── Dashboard (serve the HTML dashboard locally) ────────────────────────────
+  dashboard:
+    image: nginx:alpine
+    container_name: envsync-dashboard
+    ports:
+      - "8080:80"
+    volumes:
+      - ./web/dashboard:/usr/share/nginx/html:ro
+    networks:
+      - envsync-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ── Redis (optional — for caching environment state) ────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: envsync-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass ${REDIS_PASSWORD:-envsync-dev}
+    volumes:
+      - redis-data:/data
+    networks:
+      - envsync-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    profiles:
+      - full  # Only starts with: docker compose --profile full up
+
+volumes:
+  vault-data:
+  redis-data:
+  envsync-snapshots:
+
+networks:
+  envsync-net:
+    driver: bridge

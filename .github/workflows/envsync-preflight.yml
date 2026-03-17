@@ -1,0 +1,208 @@
+name: EnvSync Pre-flight Check
+
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main, staging]
+
+jobs:
+  # ── Phase 4: Pre-flight drift check before ANY deployment ─────────────────
+  envsync-audit:
+    name: Audit Environment Drift
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache: true
+
+      - name: Build EnvSync CLI
+        run: |
+          cd envsync
+          go build -o envsync ./main.go
+          chmod +x envsync
+          echo "$(pwd)" >> $GITHUB_PATH
+
+      # Write environment files from GitHub Secrets
+      - name: Write .env.staging from secrets
+        run: |
+          cat <<EOF > envsync/.env.staging
+          APP_NAME=${{ secrets.STAGING_APP_NAME }}
+          APP_ENV=staging
+          APP_PORT=3000
+          APP_URL=${{ secrets.STAGING_APP_URL }}
+          LOG_LEVEL=info
+          DB_HOST=${{ secrets.STAGING_DB_HOST }}
+          DB_PORT=${{ secrets.STAGING_DB_PORT }}
+          DB_NAME=${{ secrets.STAGING_DB_NAME }}
+          DB_USER=${{ secrets.STAGING_DB_USER }}
+          DB_PASSWORD=${{ secrets.STAGING_DB_PASSWORD }}
+          REDIS_HOST=${{ secrets.STAGING_REDIS_HOST }}
+          REDIS_PORT=6379
+          REDIS_PASSWORD=${{ secrets.STAGING_REDIS_PASSWORD }}
+          JWT_SECRET=${{ secrets.STAGING_JWT_SECRET }}
+          JWT_EXPIRES_IN=7d
+          STRIPE_SECRET_KEY=${{ secrets.STAGING_STRIPE_KEY }}
+          SENDGRID_API_KEY=${{ secrets.STAGING_SENDGRID_KEY }}
+          AWS_ACCESS_KEY_ID=${{ secrets.STAGING_AWS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY=${{ secrets.STAGING_AWS_SECRET }}
+          AWS_REGION=${{ secrets.AWS_REGION }}
+          ENABLE_SIGNUPS=true
+          ENABLE_PAYMENTS=true
+          MAINTENANCE_MODE=false
+          EOF
+
+      - name: Write .env.dev from secrets
+        run: |
+          cat <<EOF > envsync/.env.dev
+          APP_NAME=myapp
+          APP_ENV=development
+          APP_PORT=3000
+          APP_URL=http://localhost:3000
+          LOG_LEVEL=debug
+          DB_HOST=localhost
+          DB_PORT=5432
+          DB_NAME=myapp_dev
+          DB_USER=postgres
+          DB_PASSWORD=devpassword123
+          REDIS_HOST=localhost
+          REDIS_PORT=6379
+          REDIS_PASSWORD=
+          JWT_SECRET=${{ secrets.DEV_JWT_SECRET }}
+          JWT_EXPIRES_IN=30d
+          STRIPE_SECRET_KEY=${{ secrets.DEV_STRIPE_KEY }}
+          SENDGRID_API_KEY=${{ secrets.DEV_SENDGRID_KEY }}
+          AWS_ACCESS_KEY_ID=${{ secrets.DEV_AWS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY=${{ secrets.DEV_AWS_SECRET }}
+          AWS_REGION=us-east-1
+          ENABLE_SIGNUPS=true
+          ENABLE_PAYMENTS=false
+          MAINTENANCE_MODE=false
+          EOF
+
+      # Run audit against staging (check against .env.example)
+      - name: Audit Staging Environment
+        working-directory: envsync
+        run: |
+          ./envsync audit --env staging --fail-on-missing --threshold 5
+        env:
+          ENVSYNC_KEY: ${{ secrets.ENVSYNC_ENCRYPTION_KEY }}
+
+      # Compare dev vs staging — exit code 2 = drift detected
+      - name: Diff Dev vs Staging
+        working-directory: envsync
+        run: |
+          ./envsync diff dev staging --output json > drift-report.json || true
+          cat drift-report.json
+        env:
+          ENVSYNC_KEY: ${{ secrets.ENVSYNC_ENCRYPTION_KEY }}
+
+      # Upload drift report as artifact
+      - name: Upload Drift Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: drift-report-${{ github.run_number }}
+          path: envsync/drift-report.json
+          retention-days: 30
+
+      # Fail the build if critical keys are missing
+      - name: Fail on Critical Drift
+        working-directory: envsync
+        run: |
+          ./envsync audit --env staging --fail-on-missing
+        env:
+          ENVSYNC_KEY: ${{ secrets.ENVSYNC_ENCRYPTION_KEY }}
+
+      # Validate runtime versions
+      - name: Validate Runtime Versions
+        working-directory: envsync
+        run: |
+          ./envsync validate --env staging
+        continue-on-error: true   # warn only, don't fail build
+
+  # ── Deploy to Staging (only on push to staging branch) ────────────────────
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: envsync-audit
+    if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
+    environment: staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build EnvSync
+        run: |
+          cd envsync
+          go build -o envsync ./main.go
+
+      - name: Snapshot Staging Before Deploy
+        working-directory: envsync
+        run: ./envsync snapshot create staging
+        env:
+          ENVSYNC_KEY: ${{ secrets.ENVSYNC_ENCRYPTION_KEY }}
+
+      - name: Run your deployment steps here
+        run: |
+          echo "✔ Pre-flight passed. Deploying to staging..."
+          # e.g. kubectl apply, helm upgrade, docker push, etc.
+
+  # ── Deploy to Production (only on push to main, requires approval) ────────
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: envsync-audit
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production    # GitHub Environment with required reviewers
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build EnvSync
+        run: |
+          cd envsync
+          go build -o envsync ./main.go
+
+      - name: Snapshot Production Before Deploy
+        working-directory: envsync
+        run: ./envsync snapshot create production
+        env:
+          ENVSYNC_KEY: ${{ secrets.ENVSYNC_ENCRYPTION_KEY }}
+
+      - name: Strict Audit Production
+        working-directory: envsync
+        run: |
+          ./envsync audit --env production --fail-on-missing --threshold 0
+        env:
+          ENVSYNC_KEY: ${{ secrets.ENVSYNC_ENCRYPTION_KEY }}
+
+      - name: Deploy to Production
+        run: |
+          echo "✔ All checks passed. Deploying to production..."
+          # e.g. kubectl apply, helm upgrade, etc.
+
+      - name: Rollback on Failure
+        if: failure()
+        working-directory: envsync
+        run: |
+          echo "⚠ Deployment failed — rolling back production..."
+          # ./envsync rollback production
+        env:
+          ENVSYNC_KEY: ${{ secrets.ENVSYNC_ENCRYPTION_KEY }}

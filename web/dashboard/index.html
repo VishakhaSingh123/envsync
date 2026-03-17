@@ -1,0 +1,1259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>EnvSync — Environment Drift Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #0b0e14;
+    --bg2:       #111520;
+    --bg3:       #181d2a;
+    --border:    #1e2535;
+    --text:      #c8d0e0;
+    --text-dim:  #5a6480;
+    --text-bright: #eef2ff;
+    --cyan:      #38bdf8;
+    --green:     #4ade80;
+    --yellow:    #fbbf24;
+    --red:       #f87171;
+    --blue:      #818cf8;
+    --purple:    #c084fc;
+    --glow-c:    rgba(56,189,248,0.15);
+    --glow-g:    rgba(74,222,128,0.12);
+    --glow-r:    rgba(248,113,113,0.12);
+    --glow-y:    rgba(251,191,36,0.12);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Grid noise texture */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(56,189,248,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(56,189,248,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── Layout ── */
+  .shell {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-rows: 56px 1fr;
+    grid-template-columns: 220px 1fr;
+    min-height: 100vh;
+  }
+
+  /* ── Topbar ── */
+  .topbar {
+    grid-column: 1 / -1;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 24px;
+    gap: 16px;
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 18px;
+    color: var(--text-bright);
+    letter-spacing: -0.5px;
+  }
+  .logo-icon {
+    width: 28px; height: 28px;
+    background: linear-gradient(135deg, var(--cyan), var(--blue));
+    border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+  }
+  .logo span { color: var(--cyan); }
+  .topbar-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .status-badge {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 11px;
+  }
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    padding: 20px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .sidebar-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: var(--text-dim);
+    padding: 12px 20px 6px;
+    text-transform: uppercase;
+  }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 20px;
+    cursor: pointer;
+    color: var(--text-dim);
+    border-left: 2px solid transparent;
+    transition: all 0.15s;
+    user-select: none;
+  }
+  .nav-item:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+  .nav-item.active {
+    color: var(--cyan);
+    border-left-color: var(--cyan);
+    background: rgba(56,189,248,0.06);
+  }
+  .nav-icon { font-size: 15px; width: 20px; text-align: center; }
+
+  /* ── Main content ── */
+  .main {
+    padding: 28px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+
+  /* ── Page header ── */
+  .page-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .page-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-bright);
+  }
+  .page-sub { color: var(--text-dim); margin-top: 4px; font-size: 12px; }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 16px;
+    border-radius: 7px;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    transition: all 0.15s;
+  }
+  .btn-primary {
+    background: var(--cyan);
+    color: #0b0e14;
+  }
+  .btn-primary:hover { background: #7dd3fc; }
+  .btn-ghost {
+    background: var(--bg3);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { border-color: var(--cyan); color: var(--cyan); }
+
+  /* ── Stats row ── */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+  }
+  .stat-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    position: relative;
+    overflow: hidden;
+  }
+  .stat-card::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+  .stat-card.green::after { background: var(--green); }
+  .stat-card.red::after   { background: var(--red); }
+  .stat-card.yellow::after{ background: var(--yellow); }
+  .stat-card.blue::after  { background: var(--blue); }
+  .stat-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
+  .stat-value {
+    font-family: 'Syne', sans-serif;
+    font-size: 32px;
+    font-weight: 800;
+    color: var(--text-bright);
+    line-height: 1;
+  }
+  .stat-card.green .stat-value { color: var(--green); }
+  .stat-card.red .stat-value   { color: var(--red); }
+  .stat-card.yellow .stat-value{ color: var(--yellow); }
+  .stat-card.blue .stat-value  { color: var(--blue); }
+  .stat-trend { font-size: 11px; color: var(--text-dim); }
+
+  /* ── Pipeline row ── */
+  .pipeline {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+  }
+  .pipeline-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-bright);
+    margin-bottom: 20px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .pipeline-track {
+    display: flex;
+    align-items: center;
+    gap: 0;
+  }
+  .pipeline-env {
+    flex: 1;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .pipeline-env.healthy { border-color: rgba(74,222,128,0.3); background: rgba(74,222,128,0.04); }
+  .pipeline-env.warning { border-color: rgba(251,191,36,0.3); background: rgba(251,191,36,0.04); }
+  .pipeline-env.danger  { border-color: rgba(248,113,113,0.3); background: rgba(248,113,113,0.04); }
+  .env-name {
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-bright);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .env-keys { font-size: 11px; color: var(--text-dim); }
+  .env-status {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 11px; font-weight: 500;
+    margin-top: 4px;
+  }
+  .env-status.ok { color: var(--green); }
+  .env-status.warn { color: var(--yellow); }
+  .env-status.err { color: var(--red); }
+  .pipeline-arrow {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0 10px;
+    gap: 3px;
+  }
+  .arrow-line {
+    width: 40px; height: 2px;
+    background: linear-gradient(90deg, var(--border), var(--cyan));
+  }
+  .arrow-label { font-size: 10px; color: var(--text-dim); white-space: nowrap; }
+  .drift-badge {
+    background: var(--bg);
+    border: 1px solid;
+    border-radius: 12px;
+    padding: 3px 9px;
+    font-size: 10px;
+    font-weight: 600;
+  }
+  .drift-badge.ok    { border-color: var(--green); color: var(--green); }
+  .drift-badge.warn  { border-color: var(--yellow); color: var(--yellow); }
+  .drift-badge.error { border-color: var(--red); color: var(--red); }
+
+  /* ── Drift table ── */
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .card-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .card-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-bright);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+  .filter-tabs {
+    display: flex;
+    gap: 4px;
+  }
+  .filter-tab {
+    padding: 4px 10px;
+    border-radius: 5px;
+    font-size: 11px;
+    cursor: pointer;
+    background: var(--bg3);
+    color: var(--text-dim);
+    border: 1px solid transparent;
+    transition: all 0.15s;
+  }
+  .filter-tab:hover { color: var(--text); }
+  .filter-tab.active { background: rgba(56,189,248,0.1); border-color: var(--cyan); color: var(--cyan); }
+  .filter-tab.red.active { background: rgba(248,113,113,0.1); border-color: var(--red); color: var(--red); }
+  .filter-tab.yellow.active { background: rgba(251,191,36,0.1); border-color: var(--yellow); color: var(--yellow); }
+  .filter-tab.blue.active { background: rgba(129,140,248,0.1); border-color: var(--blue); color: var(--blue); }
+
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    padding: 10px 20px;
+    text-align: left;
+    font-size: 10px;
+    color: var(--text-dim);
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg3);
+  }
+  tbody tr {
+    border-bottom: 1px solid rgba(30,37,53,0.6);
+    transition: background 0.1s;
+  }
+  tbody tr:hover { background: rgba(255,255,255,0.02); }
+  tbody tr:last-child { border-bottom: none; }
+  td {
+    padding: 11px 20px;
+    font-size: 12px;
+    color: var(--text);
+    vertical-align: middle;
+  }
+  .key-cell {
+    font-weight: 500;
+    color: var(--text-bright);
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .val-cell {
+    color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .val-cell.secret { color: var(--purple); letter-spacing: 2px; }
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .pill-missing { background: rgba(248,113,113,0.12); color: var(--red); }
+  .pill-mismatch { background: rgba(251,191,36,0.12); color: var(--yellow); }
+  .pill-extra { background: rgba(129,140,248,0.12); color: var(--blue); }
+  .pill-match { background: rgba(74,222,128,0.1); color: var(--green); }
+  .action-btn {
+    padding: 4px 10px;
+    font-size: 10px;
+    font-family: inherit;
+    border-radius: 5px;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--bg3);
+    color: var(--text-dim);
+    transition: all 0.15s;
+  }
+  .action-btn:hover { border-color: var(--cyan); color: var(--cyan); }
+
+  /* ── Snapshot panel ── */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .snapshot-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 20px;
+    border-bottom: 1px solid rgba(30,37,53,0.6);
+    transition: background 0.1s;
+  }
+  .snapshot-item:hover { background: rgba(255,255,255,0.02); }
+  .snapshot-item:last-child { border-bottom: none; }
+  .snap-icon {
+    width: 32px; height: 32px;
+    border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .snap-icon.dev     { background: rgba(56,189,248,0.12); }
+  .snap-icon.staging { background: rgba(251,191,36,0.12); }
+  .snap-icon.prod    { background: rgba(74,222,128,0.12); }
+  .snap-info { flex: 1; min-width: 0; }
+  .snap-id { color: var(--cyan); font-size: 11px; font-weight: 500; }
+  .snap-meta { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+  .snap-actions { display: flex; gap: 6px; }
+
+  /* ── Terminal log ── */
+  .terminal {
+    background: #080b10;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .terminal-bar {
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .terminal-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+  }
+  .terminal-body {
+    padding: 16px 20px;
+    font-size: 12px;
+    line-height: 1.9;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+  .log-line { display: flex; gap: 10px; }
+  .log-time { color: var(--text-dim); flex-shrink: 0; }
+  .log-msg  { color: var(--text); }
+  .log-msg.ok   { color: var(--green); }
+  .log-msg.warn { color: var(--yellow); }
+  .log-msg.err  { color: var(--red); }
+  .log-msg.info { color: var(--cyan); }
+  .cursor {
+    display: inline-block;
+    width: 7px; height: 13px;
+    background: var(--cyan);
+    vertical-align: middle;
+    animation: blink 1s step-end infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+  /* ── CLI cheatsheet ── */
+  .cli-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--border);
+  }
+  .cli-cmd {
+    background: var(--bg2);
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .cli-cmd code {
+    color: var(--cyan);
+    font-size: 11px;
+  }
+  .cli-cmd p { color: var(--text-dim); font-size: 11px; }
+
+  /* ── Env selector ── */
+  .env-selector {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 12px;
+  }
+  .env-selector label { color: var(--text-dim); font-size: 11px; }
+  .env-selector select {
+    background: transparent;
+    border: none;
+    color: var(--text-bright);
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    outline: none;
+  }
+  .env-selector select option { background: var(--bg2); }
+
+  /* ── Misc ── */
+  .empty-state {
+    padding: 40px;
+    text-align: center;
+    color: var(--text-dim);
+  }
+  .empty-state .icon { font-size: 32px; margin-bottom: 10px; }
+  .tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 4px;
+    font-size: 10px; font-weight: 600;
+    background: rgba(56,189,248,0.1);
+    color: var(--cyan);
+    border: 1px solid rgba(56,189,248,0.2);
+  }
+
+  /* ── Animations ── */
+  .fade-in { animation: fadeIn 0.3s ease both; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+
+  /* ── Modal ── */
+  .modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  .modal-overlay.open { opacity: 1; pointer-events: all; }
+  .modal {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    width: 480px;
+    max-width: 90vw;
+    transform: scale(0.95);
+    transition: transform 0.2s;
+  }
+  .modal-overlay.open .modal { transform: scale(1); }
+  .modal-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-bright);
+    margin-bottom: 16px;
+  }
+  .modal-body { color: var(--text-dim); font-size: 12px; line-height: 1.7; margin-bottom: 20px; }
+  .modal-body code {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  .modal-footer { display: flex; gap: 10px; justify-content: flex-end; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- Topbar -->
+  <header class="topbar">
+    <div class="logo">
+      <div class="logo-icon">⚡</div>
+      Env<span>Sync</span>
+    </div>
+    <div class="env-selector">
+      <label>Compare:</label>
+      <select id="srcEnv" onchange="refreshDiff()">
+        <option value="dev">dev</option>
+        <option value="staging">staging</option>
+        <option value="production">production</option>
+      </select>
+      <span style="color:var(--text-dim)">→</span>
+      <select id="tgtEnv" onchange="refreshDiff()">
+        <option value="staging" selected>staging</option>
+        <option value="dev">dev</option>
+        <option value="production">production</option>
+      </select>
+    </div>
+    <div class="topbar-right">
+      <div class="status-badge">
+        <div class="status-dot"></div>
+        <span>Live</span>
+      </div>
+      <div class="status-badge" style="color:var(--text-dim)">v1.0.0</div>
+      <button class="btn btn-primary" onclick="runFullSync()">⚡ Sync Now</button>
+    </div>
+  </header>
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-label">Navigation</div>
+    <div class="nav-item active" onclick="setPage('overview')"><span class="nav-icon">◈</span> Overview</div>
+    <div class="nav-item" onclick="setPage('drift')"><span class="nav-icon">⊕</span> Drift Report</div>
+    <div class="nav-item" onclick="setPage('snapshots')"><span class="nav-icon">◎</span> Snapshots</div>
+    <div class="nav-item" onclick="setPage('audit')"><span class="nav-icon">✦</span> Audit Log</div>
+    <div class="sidebar-label" style="margin-top:12px">Environments</div>
+    <div class="nav-item" onclick="setPage('overview')"><span class="nav-icon" style="color:var(--cyan)">●</span> Dev</div>
+    <div class="nav-item" onclick="setPage('overview')"><span class="nav-icon" style="color:var(--yellow)">●</span> Staging</div>
+    <div class="nav-item" onclick="setPage('overview')"><span class="nav-icon" style="color:var(--green)">●</span> Production</div>
+    <div class="sidebar-label" style="margin-top:12px">Tools</div>
+    <div class="nav-item" onclick="setPage('cli')"><span class="nav-icon">⌘</span> CLI Cheatsheet</div>
+    <div class="nav-item" onclick="setPage('cicd')"><span class="nav-icon">⟳</span> CI/CD Guide</div>
+  </nav>
+
+  <!-- Main -->
+  <main class="main" id="mainContent">
+    <!-- content injected by JS -->
+  </main>
+</div>
+
+<!-- Sync Modal -->
+<div class="modal-overlay" id="syncModal">
+  <div class="modal">
+    <div class="modal-title">⚡ Confirm Sync Operation</div>
+    <div class="modal-body" id="syncModalBody"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmSync()">Apply Sync</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Data ─────────────────────────────────────────────────────────────────────
+const DATA = {
+  environments: {
+    dev: {
+      keys: {
+        APP_NAME: "myapp", APP_ENV: "development", APP_PORT: "3000",
+        APP_URL: "http://localhost:3000", LOG_LEVEL: "debug",
+        DB_HOST: "localhost", DB_PORT: "5432", DB_NAME: "myapp_dev",
+        DB_USER: "postgres", DB_PASSWORD: "devpassword123",
+        REDIS_HOST: "localhost", REDIS_PORT: "6379", REDIS_PASSWORD: "",
+        JWT_SECRET: "dev-jwt-secret-not-for-prod", JWT_EXPIRES_IN: "30d",
+        STRIPE_SECRET_KEY: "sk_test_devkey123", SENDGRID_API_KEY: "SG.devkey",
+        AWS_ACCESS_KEY_ID: "AKIADEV123", AWS_SECRET_ACCESS_KEY: "devsecret",
+        AWS_REGION: "us-east-1", ENABLE_SIGNUPS: "true",
+        ENABLE_PAYMENTS: "false", MAINTENANCE_MODE: "false"
+      }
+    },
+    staging: {
+      keys: {
+        APP_NAME: "myapp", APP_ENV: "staging", APP_PORT: "3000",
+        APP_URL: "https://staging.myapp.com", LOG_LEVEL: "info",
+        DB_HOST: "staging-db.internal", DB_PORT: "5432", DB_NAME: "myapp_staging",
+        DB_USER: "app_user", DB_PASSWORD: "stagingpassword456",
+        REDIS_HOST: "staging-redis.internal", REDIS_PORT: "6379", REDIS_PASSWORD: "redispass789",
+        JWT_SECRET: "staging-jwt-rotated", JWT_EXPIRES_IN: "7d",
+        STRIPE_SECRET_KEY: "sk_test_stagingkey", SENDGRID_API_KEY: "SG.stagingkey",
+        AWS_ACCESS_KEY_ID: "AKIASTAGING", AWS_SECRET_ACCESS_KEY: "stagingsecret",
+        AWS_REGION: "us-east-1", ENABLE_SIGNUPS: "true",
+        ENABLE_PAYMENTS: "true", STAGING_ONLY_VAR: "staging_value"
+        // MAINTENANCE_MODE intentionally missing
+      }
+    },
+    production: {
+      keys: {
+        APP_NAME: "myapp", APP_ENV: "production", APP_PORT: "3000",
+        APP_URL: "https://myapp.com", LOG_LEVEL: "warn",
+        DB_HOST: "prod-db.internal", DB_PORT: "5432", DB_NAME: "myapp_production",
+        DB_USER: "app_user", DB_PASSWORD: "ultra-secure-prod",
+        REDIS_HOST: "prod-redis.internal", REDIS_PORT: "6379", REDIS_PASSWORD: "prod-redis-secret",
+        JWT_SECRET: "prod-jwt-super-secret", JWT_EXPIRES_IN: "7d",
+        STRIPE_SECRET_KEY: "sk_live_prodkey", SENDGRID_API_KEY: "SG.prodkey",
+        AWS_ACCESS_KEY_ID: "AKIAPROD789", AWS_SECRET_ACCESS_KEY: "prodsecret",
+        AWS_REGION: "us-east-1", ENABLE_SIGNUPS: "true",
+        ENABLE_PAYMENTS: "true", MAINTENANCE_MODE: "false"
+      }
+    }
+  },
+  snapshots: [
+    { id: "snap_20260317_094512", env: "production", ts: "2026-03-17 09:45:12", keys: 22, note: "Pre-deploy backup" },
+    { id: "snap_20260317_081033", env: "staging",    ts: "2026-03-17 08:10:33", keys: 23, note: "Auto-snapshot" },
+    { id: "snap_20260316_153021", env: "production", ts: "2026-03-16 15:30:21", keys: 22, note: "Manual backup" },
+    { id: "snap_20260316_102541", env: "staging",    ts: "2026-03-16 10:25:41", keys: 22, note: "Auto-snapshot" },
+    { id: "snap_20260315_190011", env: "dev",        ts: "2026-03-15 19:00:11", keys: 23, note: "Dev checkpoint" },
+  ],
+  logs: [
+    { time: "09:45:12", msg: "✔ Snapshot created: production (snap_20260317_094512)", cls: "ok" },
+    { time: "09:44:58", msg: "ℹ Drift check: staging → production — 0 issues", cls: "ok" },
+    { time: "09:30:01", msg: "⚠ Drift detected: dev → staging — 2 missing, 1 mismatch", cls: "warn" },
+    { time: "08:10:35", msg: "✔ Auto-snapshot: staging (snap_20260317_081033)", cls: "ok" },
+    { time: "08:00:00", msg: "ℹ Scheduled drift check started", cls: "info" },
+    { time: "07:55:12", msg: "✔ Sync applied: dev → staging — 3 keys updated", cls: "ok" },
+    { time: "07:54:01", msg: "⚡ Sync initiated: dev → staging", cls: "info" },
+  ]
+};
+
+const SENSITIVE = ['PASSWORD','SECRET','TOKEN','KEY','PRIVATE','CREDENTIAL','AUTH'];
+function isSensitive(k) { return SENSITIVE.some(s => k.toUpperCase().includes(s)); }
+function maskVal(v) { if(!v||v.length<=4) return '••••••'; return v.slice(0,2)+'•'.repeat(Math.max(4,v.length-4))+v.slice(-2); }
+function displayVal(k, v) {
+  if(!v) return '<span style="color:var(--text-dim);font-style:italic">empty</span>';
+  if(isSensitive(k)) return `<span class="val-cell secret">${maskVal(v)}</span>`;
+  return v;
+}
+
+// ── Diff engine ───────────────────────────────────────────────────────────────
+function computeDiff(srcName, tgtName) {
+  const src = DATA.environments[srcName]?.keys || {};
+  const tgt = DATA.environments[tgtName]?.keys || {};
+  const entries = [];
+  const allKeys = new Set([...Object.keys(src), ...Object.keys(tgt)]);
+  for(const key of allKeys) {
+    const inSrc = key in src, inTgt = key in tgt;
+    if(inSrc && !inTgt)      entries.push({ key, status: 'MISSING',  sv: src[key], tv: '' });
+    else if(!inSrc && inTgt) entries.push({ key, status: 'EXTRA',    sv: '', tv: tgt[key] });
+    else if(src[key] !== tgt[key]) entries.push({ key, status: 'MISMATCH', sv: src[key], tv: tgt[key] });
+    else                     entries.push({ key, status: 'MATCH',    sv: src[key], tv: tgt[key] });
+  }
+  return entries.sort((a,b) => {
+    const order = { MISSING:0, MISMATCH:1, EXTRA:2, MATCH:3 };
+    return (order[a.status]||9) - (order[b.status]||9) || a.key.localeCompare(b.key);
+  });
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let currentPage = 'overview';
+let activeFilter = 'ALL';
+
+function setPage(p) {
+  currentPage = p;
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  render();
+}
+
+function refreshDiff() { if(currentPage === 'drift' || currentPage === 'overview') render(); }
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function render() {
+  const main = document.getElementById('mainContent');
+  main.innerHTML = '';
+  main.className = 'main fade-in';
+  switch(currentPage) {
+    case 'overview':  main.innerHTML = renderOverview(); break;
+    case 'drift':     main.innerHTML = renderDrift(); break;
+    case 'snapshots': main.innerHTML = renderSnapshots(); break;
+    case 'audit':     main.innerHTML = renderAudit(); break;
+    case 'cli':       main.innerHTML = renderCLI(); break;
+    case 'cicd':      main.innerHTML = renderCICD(); break;
+  }
+}
+
+// ── Overview ──────────────────────────────────────────────────────────────────
+function renderOverview() {
+  const src = document.getElementById('srcEnv')?.value || 'dev';
+  const tgt = document.getElementById('tgtEnv')?.value || 'staging';
+  const diff = computeDiff(src, tgt);
+  const missing  = diff.filter(e=>e.status==='MISSING').length;
+  const mismatch = diff.filter(e=>e.status==='MISMATCH').length;
+  const extra    = diff.filter(e=>e.status==='EXTRA').length;
+  const ok       = diff.filter(e=>e.status==='MATCH').length;
+  const totalEnvs = Object.keys(DATA.environments).length;
+  const totalSnaps = DATA.snapshots.length;
+  const driftScore = missing+mismatch+extra;
+
+  return `
+  <div class="page-header">
+    <div>
+      <div class="page-title">Dashboard Overview</div>
+      <div class="page-sub">Last sync check: ${new Date().toLocaleTimeString()} · 3 environments monitored</div>
+    </div>
+    <button class="btn btn-ghost" onclick="setPageDirect('drift')">View Full Drift Report →</button>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-card ${driftScore===0?'green':'red'}">
+      <div class="stat-label">Drift Issues</div>
+      <div class="stat-value">${driftScore}</div>
+      <div class="stat-trend">${driftScore===0?'✔ Environments in sync':'⚠ Action required'}</div>
+    </div>
+    <div class="stat-card yellow">
+      <div class="stat-label">Missing Keys</div>
+      <div class="stat-value">${missing}</div>
+      <div class="stat-trend">${src} → ${tgt}</div>
+    </div>
+    <div class="stat-card blue">
+      <div class="stat-label">Mismatches</div>
+      <div class="stat-value">${mismatch}</div>
+      <div class="stat-trend">Value differs</div>
+    </div>
+    <div class="stat-card green">
+      <div class="stat-label">In Sync</div>
+      <div class="stat-value">${ok}</div>
+      <div class="stat-trend">Keys matched</div>
+    </div>
+  </div>
+
+  <div class="pipeline">
+    <div class="pipeline-title">Deployment Pipeline</div>
+    <div class="pipeline-track">
+      ${pipelineEnv('dev','🖥','cyan',Object.keys(DATA.environments.dev.keys).length,'healthy','Active')}
+      ${pipelineArrow('dev→staging', computeDiff('dev','staging'))}
+      ${pipelineEnv('staging','🧪','yellow',Object.keys(DATA.environments.staging.keys).length,'warning','2 issues')}
+      ${pipelineArrow('staging→prod', computeDiff('staging','production'))}
+      ${pipelineEnv('production','🚀','green',Object.keys(DATA.environments.production.keys).length,'healthy','Healthy')}
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Recent Snapshots</div>
+        <button class="btn btn-ghost" style="font-size:11px" onclick="setPageDirect('snapshots')">View All</button>
+      </div>
+      ${DATA.snapshots.slice(0,4).map(s=>`
+        <div class="snapshot-item">
+          <div class="snap-icon ${s.env==='production'?'prod':s.env}">
+            ${s.env==='dev'?'🖥':s.env==='staging'?'🧪':'🚀'}
+          </div>
+          <div class="snap-info">
+            <div class="snap-id">${s.id}</div>
+            <div class="snap-meta">${s.env} · ${s.ts} · ${s.keys} keys</div>
+          </div>
+          <button class="action-btn" onclick="showRollback('${s.id}','${s.env}')">Restore</button>
+        </div>
+      `).join('')}
+    </div>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot" style="background:#f87171"></div>
+        <div class="terminal-dot" style="background:#fbbf24"></div>
+        <div class="terminal-dot" style="background:#4ade80"></div>
+        <span style="color:var(--text-dim);font-size:11px;margin-left:6px">envsync — activity log</span>
+      </div>
+      <div class="terminal-body">
+        ${DATA.logs.map(l=>`
+          <div class="log-line">
+            <span class="log-time">${l.time}</span>
+            <span class="log-msg ${l.cls}">${l.msg}</span>
+          </div>
+        `).join('')}
+        <div class="log-line">
+          <span class="log-time">${new Date().toLocaleTimeString()}</span>
+          <span class="log-msg info">$ envsync diff ${src} ${tgt}<span class="cursor"></span></span>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function pipelineEnv(name, icon, color, keyCount, state, statusText) {
+  return `
+    <div class="pipeline-env ${state}">
+      <div style="font-size:20px">${icon}</div>
+      <div class="env-name">${name}</div>
+      <div class="env-keys">${keyCount} keys</div>
+      <div class="env-status ${state==='healthy'?'ok':state==='warning'?'warn':'err'}">
+        <span>${state==='healthy'?'✔':state==='warning'?'⚠':'✗'}</span>
+        <span>${statusText}</span>
+      </div>
+    </div>`;
+}
+
+function pipelineArrow(label, diff) {
+  const issues = diff.filter(e=>e.status!=='MATCH').length;
+  const cls = issues===0?'ok':'warn';
+  return `
+    <div class="pipeline-arrow">
+      <div class="arrow-line"></div>
+      <div class="drift-badge ${cls}">${issues===0?'✔ synced':'⚠ '+issues+' drift'}</div>
+    </div>`;
+}
+
+// ── Drift Report ──────────────────────────────────────────────────────────────
+function renderDrift() {
+  const src = document.getElementById('srcEnv')?.value || 'dev';
+  const tgt = document.getElementById('tgtEnv')?.value || 'staging';
+  const diff = computeDiff(src, tgt);
+  const filtered = activeFilter==='ALL' ? diff.filter(e=>e.status!=='MATCH') :
+                   diff.filter(e=>e.status===activeFilter);
+  const counts = {
+    MISSING:  diff.filter(e=>e.status==='MISSING').length,
+    MISMATCH: diff.filter(e=>e.status==='MISMATCH').length,
+    EXTRA:    diff.filter(e=>e.status==='EXTRA').length,
+    MATCH:    diff.filter(e=>e.status==='MATCH').length,
+  };
+
+  return `
+  <div class="page-header">
+    <div>
+      <div class="page-title">Drift Report: <span style="color:var(--cyan)">${src}</span> → <span style="color:var(--yellow)">${tgt}</span></div>
+      <div class="page-sub">${diff.length} total keys · ${counts.MISSING+counts.MISMATCH+counts.EXTRA} issues found</div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-ghost" onclick="exportReport()">↓ Export JSON</button>
+      <button class="btn btn-primary" onclick="showSyncModal('${src}','${tgt}')">⚡ Sync ${src}→${tgt}</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">Key Comparison</div>
+      <div class="filter-tabs">
+        ${filterTab('ALL', `All (${counts.MISSING+counts.MISMATCH+counts.EXTRA})`, 'cyan')}
+        ${filterTab('MISSING', `Missing (${counts.MISSING})`, 'red')}
+        ${filterTab('MISMATCH', `Mismatch (${counts.MISMATCH})`, 'yellow')}
+        ${filterTab('EXTRA', `Extra (${counts.EXTRA})`, 'blue')}
+        ${filterTab('MATCH', `OK (${counts.MATCH})`, 'cyan')}
+      </div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:28%">Key</th>
+          <th style="width:12%">Status</th>
+          <th style="width:27%">${src} value</th>
+          <th style="width:27%">${tgt} value</th>
+          <th style="width:6%"></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${filtered.length===0
+          ? `<tr><td colspan="5"><div class="empty-state"><div class="icon">✅</div>No issues in this filter</div></td></tr>`
+          : filtered.map(e => `
+          <tr>
+            <td class="key-cell">${e.key}</td>
+            <td>${statusPill(e.status)}</td>
+            <td class="val-cell">${displayVal(e.key, e.sv)}</td>
+            <td class="val-cell">${displayVal(e.key, e.tv)}</td>
+            <td><button class="action-btn" onclick="applyKey('${e.key}','${src}','${tgt}')">Apply</button></td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+function filterTab(val, label, color) {
+  const isActive = activeFilter===val;
+  return `<div class="filter-tab ${color} ${isActive?'active':''}" onclick="setFilter('${val}')">${label}</div>`;
+}
+function setFilter(f) { activeFilter=f; render(); }
+
+function statusPill(s) {
+  const map = {
+    MISSING:  ['pill-missing','✗ MISSING'],
+    MISMATCH: ['pill-mismatch','~ MISMATCH'],
+    EXTRA:    ['pill-extra','+ EXTRA'],
+    MATCH:    ['pill-match','✔ MATCH'],
+  };
+  const [cls,label] = map[s] || ['',''];
+  return `<span class="status-pill ${cls}">${label}</span>`;
+}
+
+// ── Snapshots ─────────────────────────────────────────────────────────────────
+function renderSnapshots() {
+  return `
+  <div class="page-header">
+    <div>
+      <div class="page-title">Snapshots</div>
+      <div class="page-sub">Encrypted point-in-time backups of each environment</div>
+    </div>
+    <button class="btn btn-primary" onclick="createSnapshot()">+ Create Snapshot</button>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">All Snapshots</div>
+      <span class="tag">${DATA.snapshots.length} total</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Snapshot ID</th>
+          <th>Environment</th>
+          <th>Created At</th>
+          <th>Keys</th>
+          <th>Note</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${DATA.snapshots.map((s,i)=>`
+        <tr>
+          <td class="key-cell" style="color:var(--cyan)">${s.id}</td>
+          <td>
+            <span class="status-pill ${s.env==='production'?'pill-match':s.env==='staging'?'pill-mismatch':'pill-extra'}">
+              ${s.env==='dev'?'🖥':s.env==='staging'?'🧪':'🚀'} ${s.env}
+            </span>
+          </td>
+          <td style="color:var(--text-dim)">${s.ts}</td>
+          <td>${s.keys}</td>
+          <td style="color:var(--text-dim)">${s.note}</td>
+          <td>
+            <div style="display:flex;gap:6px">
+              <button class="action-btn" onclick="showRollback('${s.id}','${s.env}')">Restore</button>
+              <button class="action-btn" onclick="alert('Snapshot diff coming in v1.1')">Diff</button>
+            </div>
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+// ── Audit Log ─────────────────────────────────────────────────────────────────
+function renderAudit() {
+  return `
+  <div class="page-header">
+    <div>
+      <div class="page-title">Audit Log</div>
+      <div class="page-sub">Full history of all sync, snapshot and drift events</div>
+    </div>
+    <button class="btn btn-ghost">↓ Export CSV</button>
+  </div>
+  <div class="terminal" style="border-radius:10px">
+    <div class="terminal-bar">
+      <div class="terminal-dot" style="background:#f87171"></div>
+      <div class="terminal-dot" style="background:#fbbf24"></div>
+      <div class="terminal-dot" style="background:#4ade80"></div>
+      <span style="color:var(--text-dim);font-size:11px;margin-left:8px">envsync — full audit trail</span>
+    </div>
+    <div class="terminal-body" style="max-height:420px">
+      ${DATA.logs.map(l=>`
+        <div class="log-line" style="padding:2px 0">
+          <span class="log-time">[2026-03-17 ${l.time}]</span>
+          <span class="log-msg ${l.cls}">${l.msg}</span>
+        </div>
+      `).join('')}
+      ${[
+        {t:'07:50:12',m:'✔ Snapshot restored: staging → snap_20260316_102541',c:'ok'},
+        {t:'07:49:01',m:'⚠ Rollback initiated for staging',c:'warn'},
+        {t:'07:30:00',m:'ℹ Scheduled drift check started',c:'info'},
+        {t:'07:29:58',m:'✔ Runtime validation: node 20.x ✔, python 3.11.x ✔',c:'ok'},
+        {t:'06:00:00',m:'ℹ Daily drift check cycle started',c:'info'},
+      ].map(l=>`
+        <div class="log-line" style="padding:2px 0">
+          <span class="log-time">[2026-03-17 ${l.t}]</span>
+          <span class="log-msg ${l.c}">${l.m}</span>
+        </div>
+      `).join('')}
+      <div class="log-line" style="padding:2px 0">
+        <span class="log-time">[now]</span>
+        <span class="log-msg info">$ <span class="cursor"></span></span>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── CLI Cheatsheet ────────────────────────────────────────────────────────────
+function renderCLI() {
+  const cmds = [
+    { cmd:'envsync init',                      desc:'Scaffold envsync.yaml config' },
+    { cmd:'envsync diff dev staging',          desc:'Compare two environments' },
+    { cmd:'envsync diff dev prod --output json',desc:'Export diff as JSON' },
+    { cmd:'envsync sync dev staging',          desc:'Sync dev → staging' },
+    { cmd:'envsync sync dev staging --dry-run',desc:'Preview without applying' },
+    { cmd:'envsync sync dev staging --strict', desc:'Require approval for prod' },
+    { cmd:'envsync audit --env staging',       desc:'Audit against .env.example' },
+    { cmd:'envsync audit --env prod --fail-on-missing', desc:'Fail CI if keys missing' },
+    { cmd:'envsync audit --env staging --threshold 5', desc:'Allow max 5 drift issues' },
+    { cmd:'envsync snapshot create staging',   desc:'Create a snapshot' },
+    { cmd:'envsync snapshot list staging',     desc:'List all snapshots' },
+    { cmd:'envsync rollback staging',          desc:'Restore to last snapshot' },
+    { cmd:'envsync rollback staging --id snap_20260317_094512', desc:'Restore specific snapshot' },
+    { cmd:'envsync validate --env dev',        desc:'Check runtime versions' },
+    { cmd:'make build',                        desc:'Compile the binary' },
+    { cmd:'make build-all',                    desc:'Cross-compile all platforms' },
+    { cmd:'make demo-key',                     desc:'Generate encryption key' },
+  ];
+  return `
+  <div class="page-header">
+    <div class="page-title">CLI Cheatsheet</div>
+  </div>
+  <div class="card">
+    <div class="card-header"><div class="card-title">All Commands</div></div>
+    <div class="cli-grid">
+      ${cmds.map(c=>`
+        <div class="cli-cmd">
+          <code>$ ${c.cmd}</code>
+          <p>${c.desc}</p>
+        </div>
+      `).join('')}
+    </div>
+  </div>`;
+}
+
+// ── CI/CD Guide ───────────────────────────────────────────────────────────────
+function renderCICD() {
+  return `
+  <div class="page-header">
+    <div>
+      <div class="page-title">CI/CD Integration Guide</div>
+      <div class="page-sub">How to wire EnvSync into GitHub Actions</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">Workflow Files Included</div></div>
+    <table>
+      <thead><tr><th>File</th><th>Trigger</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td class="key-cell" style="color:var(--cyan)">.github/workflows/drift-check.yml</td><td>PR / push / daily cron</td><td>Detects drift, comments on PR, fails build if drift found</td></tr>
+        <tr><td class="key-cell" style="color:var(--cyan)">.github/workflows/pre-deploy.yml</td><td>workflow_call / manual</td><td>Pre-flight before deploy: audit + validate + auto-snapshot</td></tr>
+        <tr><td class="key-cell" style="color:var(--cyan)">.github/workflows/envsync.yml</td><td>workflow_call</td><td>Main sync pipeline with strict mode for production</td></tr>
+        <tr><td class="key-cell" style="color:var(--cyan)">.github/workflows/envsync-preflight.yml</td><td>Pre-deploy hook</td><td>Full preflight checks before any deployment</td></tr>
+        <tr><td class="key-cell" style="color:var(--cyan)">.github/workflows/release.yml</td><td>Tag push v*.*.*</td><td>Cross-compile & publish GitHub release binaries</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">Setup Steps</div></div>
+    <div style="padding:20px 24px;display:flex;flex-direction:column;gap:14px;font-size:12px;line-height:1.8;color:var(--text)">
+      <div><span style="color:var(--cyan);font-weight:700">Step 1.</span> Generate encryption key and add to GitHub Secrets:<br>
+      <code style="background:var(--bg3);padding:6px 10px;border-radius:5px;display:inline-block;margin-top:6px;color:var(--green)">openssl rand -base64 32</code><br>
+      → Add as <code style="color:var(--cyan)">ENVSYNC_KEY</code> in Settings → Secrets → Actions</div>
+
+      <div><span style="color:var(--cyan);font-weight:700">Step 2.</span> Store your environment files as GitHub Secrets:<br>
+      Add <code style="color:var(--cyan)">ENV_STAGING</code>, <code style="color:var(--cyan)">ENV_PRODUCTION</code> as base64-encoded .env files<br>
+      <code style="background:var(--bg3);padding:6px 10px;border-radius:5px;display:inline-block;margin-top:6px;color:var(--green)">base64 -w 0 .env.staging</code></div>
+
+      <div><span style="color:var(--cyan);font-weight:700">Step 3.</span> Add drift check to your PR workflow:<br>
+      The <code style="color:var(--cyan)">drift-check.yml</code> file runs automatically on every PR to main/staging.</div>
+
+      <div><span style="color:var(--cyan);font-weight:700">Step 4.</span> Add pre-deploy to your deploy workflow:<br>
+      <code style="background:var(--bg3);padding:6px 10px;border-radius:5px;display:inline-block;margin-top:6px;color:var(--green)">uses: ./.github/workflows/pre-deploy.yml<br>with:<br>  target_env: production<br>  drift_threshold: 0</code></div>
+
+      <div><span style="color:var(--cyan);font-weight:700">Step 5.</span> Protect production with Strict Mode:<br>
+      Set <code style="color:var(--cyan)">--strict</code> flag — production syncs require manual approval in a GitHub Environment with required reviewers.</div>
+    </div>
+  </div>`;
+}
+
+// ── Actions ───────────────────────────────────────────────────────────────────
+function setPageDirect(p) {
+  currentPage = p;
+  document.querySelectorAll('.nav-item').forEach((n,i)=>{
+    n.classList.remove('active');
+    if((p==='overview'&&i===0)||(p==='drift'&&i===1)||(p==='snapshots'&&i===2)) n.classList.add('active');
+  });
+  render();
+}
+
+function showSyncModal(src,tgt) {
+  const diff = computeDiff(src,tgt);
+  const missing=diff.filter(e=>e.status==='MISSING').length;
+  const mismatch=diff.filter(e=>e.status==='MISMATCH').length;
+  document.getElementById('syncModalBody').innerHTML = `
+    This will sync <code>${src}</code> → <code>${tgt}</code>.<br><br>
+    <strong>${missing}</strong> missing keys will be added.<br>
+    <strong>${mismatch}</strong> mismatched keys will be updated.<br><br>
+    A snapshot of <code>${tgt}</code> will be created automatically before applying changes.
+    ${tgt==='production'?'<br><br><strong style="color:var(--red)">⚠ You are syncing to PRODUCTION.</strong>':''}
+  `;
+  document.getElementById('syncModal').classList.add('open');
+}
+
+function closeModal() { document.getElementById('syncModal').classList.remove('open'); }
+
+function confirmSync() {
+  closeModal();
+  const logLine = { time: new Date().toLocaleTimeString(), msg: '✔ Sync applied successfully', cls: 'ok' };
+  DATA.logs.unshift(logLine);
+  render();
+}
+
+function runFullSync() {
+  const src = document.getElementById('srcEnv')?.value || 'dev';
+  const tgt = document.getElementById('tgtEnv')?.value || 'staging';
+  showSyncModal(src,tgt);
+}
+
+function showRollback(snapId, env) {
+  document.getElementById('syncModalBody').innerHTML = `
+    Restore <code>${env}</code> to snapshot <code>${snapId}</code>?<br><br>
+    This will overwrite the current <code>${env}</code> environment with the snapshot state.
+    ${env==='production'?'<br><br><strong style="color:var(--red)">⚠ This affects PRODUCTION.</strong>':''}
+  `;
+  document.getElementById('syncModal').classList.add('open');
+}
+
+function createSnapshot() {
+  const envs = Object.keys(DATA.environments);
+  const env = envs[Math.floor(Math.random()*envs.length)];
+  const now = new Date();
+  const id = `snap_${now.toISOString().replace(/[-:T]/g,'').slice(0,15)}`;
+  DATA.snapshots.unshift({ id, env, ts: now.toLocaleString(), keys: Object.keys(DATA.environments[env].keys).length, note: 'Manual snapshot' });
+  DATA.logs.unshift({ time: now.toLocaleTimeString(), msg: `✔ Snapshot created: ${env} (${id})`, cls: 'ok' });
+  render();
+}
+
+function applyKey(key, src, tgt) {
+  const val = DATA.environments[src]?.keys[key];
+  if(val !== undefined) {
+    DATA.environments[tgt].keys[key] = val;
+    DATA.logs.unshift({ time: new Date().toLocaleTimeString(), msg: `✔ Key applied: ${key} (${src} → ${tgt})`, cls: 'ok' });
+    render();
+  }
+}
+
+function exportReport() {
+  const src = document.getElementById('srcEnv')?.value || 'dev';
+  const tgt = document.getElementById('tgtEnv')?.value || 'staging';
+  const diff = computeDiff(src,tgt);
+  const json = JSON.stringify({ generated: new Date().toISOString(), source: src, target: tgt, entries: diff }, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `drift-${src}-${tgt}-${Date.now()}.json`;
+  a.click();
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+render();
+</script>
+</body>
+</html>
