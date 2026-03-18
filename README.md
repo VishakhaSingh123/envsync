@@ -4,8 +4,7 @@
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
-### Pipeline Status
-![Pipeline Status](https://img.shields.io/badge/pipeline-passing-brightgreen)
+
 
 Student Name: Vishakha Singh
 Registration No: 23FE10CSE00134
@@ -336,7 +335,8 @@ kubectl get pods,svc,deploy
 
 ---
 
-
+### Pipeline Status
+![Pipeline Status](https://img.shields.io/badge/pipeline-passing-brightgreen)
 
 ## 🌿 Development Workflow
 
@@ -403,7 +403,7 @@ This project is licensed under the MIT License — see the [LICENSE](LICENSE) fi
 ## 📬 Contact
 
 **Student:** Vishakha Singh
-**Email:** vishakha.singh@university.edu
+
 **GitHub:** https://github.com/vishakhasingh
 **Registration No:** 23FE10CSE00134
 
