@@ -1,5 +1,12 @@
 # Environment Synchronization Tool
 
+## 📄 License
+
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+
+### Pipeline Status
+![Pipeline Status](https://img.shields.io/badge/pipeline-passing-brightgreen)
+
 Student Name: Vishakha Singh
 Registration No: 23FE10CSE00134
 Course: CSE3253 DevOps [PE6]
@@ -231,8 +238,7 @@ REDIS_PASSWORD=envsync-dev
 5. **Deploy to Staging** — Auto drift-check + sync + snapshot
 6. **Deploy to Production** — Manual approval required + zero-tolerance audit
 
-### Pipeline Status
-![Pipeline Status](https://img.shields.io/badge/pipeline-passing-brightgreen)
+
 
 ### GitHub Actions Secrets Required
 
@@ -330,23 +336,7 @@ kubectl get pods,svc,deploy
 
 ---
 
-## 🎥 Demo
 
-### Demo Video
-[Link to 5–10 minute demo video in deliverables/]
-
-### CLI Commands Demo
-```bash
-./envsync diff dev staging
-./envsync audit --env staging --fail-on-missing
-./envsync sync dev staging --dry-run
-./envsync sync dev staging
-./envsync snapshot create staging
-./envsync rollback staging
-./envsync validate --env dev
-```
-
----
 
 ## 🌿 Development Workflow
 
@@ -371,22 +361,6 @@ main
 
 ---
 
-## 🔐 Security
-
-### Security Measures Implemented
-- [x] AES-256-GCM encryption for all snapshots at rest
-- [x] Secrets never stored in plain text
-- [x] Sensitive key values masked in all terminal output
-- [x] Strict Mode for production requiring explicit confirmation
-- [x] GitHub Environment protection rules for production
-- [x] `.env.*` files excluded from git via `.gitignore`
-
-### Security Scanning
-```bash
-trivy image devopsprojectenvsync:latest
-```
-
----
 
 ## 🤝 Contributing
 
