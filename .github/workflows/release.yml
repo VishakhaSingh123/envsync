@@ -1,57 +1,40 @@
-name: EnvSync — Release CLI Binary
+name: Release
 
 on:
-  push:
-    tags:
-      - 'v*.*.*'
-
-permissions:
-  contents: write
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version e.g. v1.0.0'
+        required: true
+        default: 'v1.0.0'
 
 jobs:
   release:
-    name: Build & Release
+    name: Build Release
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - goos: linux
-            goarch: amd64
-            suffix: linux-amd64
-          - goos: linux
-            goarch: arm64
-            suffix: linux-arm64
-          - goos: darwin
-            goarch: amd64
-            suffix: darwin-amd64
-          - goos: darwin
-            goarch: arm64
-            suffix: darwin-arm64
-          - goos: windows
-            goarch: amd64
-            suffix: windows-amd64.exe
-
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
           go-version: '1.21'
+          cache: true
 
-      - name: Build Binary
-        working-directory: envsync
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: 0
-        run: |
-          go build \
-            -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
-            -o envsync-${{ matrix.suffix }} \
-            .
+      - name: Install dependencies
+        run: go mod tidy
 
-      - name: Upload Release Asset
-        uses: softprops/action-gh-release@v2
+      - name: Build for Linux
+        run: GOOS=linux GOARCH=amd64 go build -o dist/envsync-linux-amd64 .
+
+      - name: Build for macOS
+        run: GOOS=darwin GOARCH=amd64 go build -o dist/envsync-darwin-amd64 .
+
+      - name: Build for Windows
+        run: GOOS=windows GOARCH=amd64 go build -o dist/envsync-windows-amd64.exe .
+
+      - name: Upload release binaries
+        uses: actions/upload-artifact@v4
         with:
-          files: envsync/envsync-${{ matrix.suffix }}
-          generate_release_notes: true
+          name: release-${{ inputs.version }}
+          path: dist/
+          retention-days: 90
