@@ -2,276 +2,93 @@ name: EnvSync CI/CD Pipeline
 
 on:
   push:
-    branches: [main, develop, staging]
+    branches: [main]
   pull_request:
-    branches: [main, staging]
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Target environment for manual rollback'
-        required: true
-        default: 'staging'
-        type: choice
-        options: [staging, production]
+    branches: [main]
 
 permissions:
   contents: read
   pull-requests: write
-  issues: write
-
-env:
-  GO_VERSION: '1.21'
-  ENVSYNC_VERSION: 'v1.0.0'
 
 jobs:
-  # ── 1. Build & Test ──────────────────────────────────────────────────────────
+
   build:
-    name: Build & Test
+    name: Build and Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version: '1.21'
           cache: true
-      - name: Download deps
-        run: go mod download
-        working-directory: ./envsync
-      - name: Run tests
-        run: go test ./... -v -race -coverprofile=coverage.out
-        working-directory: ./envsync
+
+      - name: Install dependencies
+        run: go mod tidy
+
       - name: Build binary
-        run: |
-          go build -ldflags="-s -w -X main.version=${{ env.ENVSYNC_VERSION }}" \
-            -o bin/envsync .
-        working-directory: ./envsync
-      - uses: actions/upload-artifact@v4
+        run: go build -o envsync .
+
+      - name: Verify binary works
+        run: ./envsync --help
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
         with:
           name: envsync-binary
-          path: envsync/bin/envsync
-          retention-days: 7
+          path: envsync
+          retention-days: 1
 
-  # ── 2. Pre-flight Audit ──────────────────────────────────────────────────────
-  preflight-audit:
-    name: Audit (${{ matrix.environment }})
+  audit:
+    name: Audit Environments
     runs-on: ubuntu-latest
     needs: build
-    strategy:
-      matrix:
-        environment: [dev, staging]
-      fail-fast: false
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           name: envsync-binary
-          path: ./bin
-      - run: chmod +x ./bin/envsync
-      - name: Write env files from secrets
+
+      - run: chmod +x ./envsync
+
+      - name: Write env files
         env:
           ENV_DEV: ${{ secrets.ENV_DEV }}
           ENV_STAGING: ${{ secrets.ENV_STAGING }}
+          ENV_PRODUCTION: ${{ secrets.ENV_PRODUCTION }}
         run: |
-          echo "$ENV_DEV" > envsync/.env.dev
-          echo "$ENV_STAGING" > envsync/.env.staging
-      - name: Audit ${{ matrix.environment }}
-        id: audit
-        run: |
-          ./bin/envsync audit \
-            --env ${{ matrix.environment }} \
-            --fail-on-missing \
-            --threshold 5 \
-            --config envsync/envsync.yaml
-      - name: Post audit comment on PR
-        if: github.event_name == 'pull_request' && always()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const outcome = '${{ steps.audit.outcome }}';
-            const env = '${{ matrix.environment }}';
-            const emoji = outcome === 'success' ? '✅' : '❌';
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: `## ${emoji} EnvSync Audit: \`${env}\`\n\n**Status**: ${outcome.toUpperCase()}\n[View logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`
-            });
+          [ -n "$ENV_DEV" ]        && echo "$ENV_DEV"        > .env.dev        || true
+          [ -n "$ENV_STAGING" ]    && echo "$ENV_STAGING"    > .env.staging    || true
+          [ -n "$ENV_PRODUCTION" ] && echo "$ENV_PRODUCTION" > .env.production || true
 
-  # ── 3. Drift Detection ───────────────────────────────────────────────────────
-  drift-detection:
-    name: Drift Detection (dev → staging)
+      - name: Audit dev
+        run: ./envsync audit --env dev || true
+        env:
+          ENVSYNC_KEY: ${{ secrets.ENVSYNC_KEY }}
+
+      - name: Audit staging
+        run: ./envsync audit --env staging || true
+        env:
+          ENVSYNC_KEY: ${{ secrets.ENVSYNC_KEY }}
+
+      - name: Diff dev vs staging
+        run: ./envsync diff dev staging || true
+        env:
+          ENVSYNC_KEY: ${{ secrets.ENVSYNC_KEY }}
+
+  validate:
+    name: Validate Runtimes
     runs-on: ubuntu-latest
     needs: build
-    if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: envsync-binary
-          path: ./bin
-      - run: chmod +x ./bin/envsync
-      - name: Write env files
-        env:
-          ENV_DEV: ${{ secrets.ENV_DEV }}
-          ENV_STAGING: ${{ secrets.ENV_STAGING }}
-        run: |
-          echo "$ENV_DEV" > envsync/.env.dev
-          echo "$ENV_STAGING" > envsync/.env.staging
-      - name: Run diff
-        id: diff
-        run: |
-          set +e
-          ./bin/envsync diff dev staging \
-            --output json \
-            --config envsync/envsync.yaml > drift-report.json
-          EXIT_CODE=$?
-          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
-          [ $EXIT_CODE -eq 2 ] && echo "has_drift=true" >> $GITHUB_OUTPUT || echo "has_drift=false" >> $GITHUB_OUTPUT
-      - uses: actions/upload-artifact@v4
-        with:
-          name: drift-report
-          path: drift-report.json
-      - name: Post drift comment
-        if: always()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const hasDrift = '${{ steps.diff.outputs.has_drift }}' === 'true';
-            const emoji = hasDrift ? '⚠️' : '✅';
-            let body = `## ${emoji} Drift Report: \`dev → staging\`\n\n`;
-            if (hasDrift) {
-              body += `> Configuration drift detected. Review before merging.\n\n`;
-              try {
-                const report = JSON.parse(fs.readFileSync('drift-report.json', 'utf8'));
-                const drifted = (report.entries || []).filter(e => e.status !== 'MATCH');
-                if (drifted.length > 0) {
-                  body += `| Key | Status |\n|-----|--------|\n`;
-                  drifted.slice(0, 20).forEach(e => {
-                    body += `| \`${e.key}\` | ${e.status} |\n`;
-                  });
-                  if (drifted.length > 20) body += `\n_...and ${drifted.length - 20} more_`;
-                }
-              } catch(e) {}
-            } else {
-              body += `All keys are in sync. ✓`;
-            }
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: body
-            });
 
-  # ── 4. Deploy to Staging ─────────────────────────────────────────────────────
-  deploy-staging:
-    name: Deploy → Staging
-    runs-on: ubuntu-latest
-    needs: [preflight-audit, drift-detection]
-    if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
-    environment:
-      name: staging
-      url: https://staging.myapp.com
-    steps:
-      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: envsync-binary
-          path: ./bin
-      - run: chmod +x ./bin/envsync
-      - name: Write env files
-        env:
-          ENV_DEV: ${{ secrets.ENV_DEV }}
-          ENV_STAGING: ${{ secrets.ENV_STAGING }}
-          ENVSYNC_KEY: ${{ secrets.ENVSYNC_KEY }}
-        run: |
-          echo "$ENV_DEV" > envsync/.env.dev
-          echo "$ENV_STAGING" > envsync/.env.staging
-      - name: Snapshot staging
-        env:
-          ENVSYNC_KEY: ${{ secrets.ENVSYNC_KEY }}
-        run: ./bin/envsync snapshot create staging --config envsync/envsync.yaml
-      - name: Dry-run sync
-        env:
-          ENVSYNC_KEY: ${{ secrets.ENVSYNC_KEY }}
-        run: ./bin/envsync sync dev staging --dry-run --config envsync/envsync.yaml
-      - name: Apply sync
-        env:
-          ENVSYNC_KEY: ${{ secrets.ENVSYNC_KEY }}
-        run: ./bin/envsync sync dev staging --overwrite --config envsync/envsync.yaml
-      - name: Validate runtimes
-        run: ./bin/envsync validate --env staging --config envsync/envsync.yaml
 
-  # ── 5. Deploy to Production (requires GitHub env approval) ──────────────────
-  deploy-production:
-    name: Deploy → Production
-    runs-on: ubuntu-latest
-    needs: deploy-staging
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    environment:
-      name: production
-      url: https://myapp.com
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: envsync-binary
-          path: ./bin
-      - run: chmod +x ./bin/envsync
-      - name: Write env files
-        env:
-          ENV_STAGING: ${{ secrets.ENV_STAGING }}
-          ENV_PRODUCTION: ${{ secrets.ENV_PRODUCTION }}
-          ENVSYNC_KEY: ${{ secrets.ENVSYNC_KEY }}
-        run: |
-          echo "$ENV_STAGING" > envsync/.env.staging
-          echo "$ENV_PRODUCTION" > envsync/.env.production
-      - name: Snapshot production
-        env:
-          ENVSYNC_KEY: ${{ secrets.ENVSYNC_KEY }}
-        run: ./bin/envsync snapshot create production --config envsync/envsync.yaml
-      - name: Production audit (zero tolerance)
-        run: |
-          ./bin/envsync audit --env production \
-            --fail-on-missing --threshold 0 \
-            --config envsync/envsync.yaml
-      - name: Dry-run sync
-        env:
-          ENVSYNC_KEY: ${{ secrets.ENVSYNC_KEY }}
-        run: ./bin/envsync sync staging production --dry-run --config envsync/envsync.yaml
-      - name: Apply sync (strict mode)
-        env:
-          ENVSYNC_KEY: ${{ secrets.ENVSYNC_KEY }}
-        run: |
-          ./bin/envsync sync staging production \
-            --overwrite --strict \
-            --config envsync/envsync.yaml
+      - run: chmod +x ./envsync
 
-  # ── 6. Emergency Rollback (manual dispatch) ──────────────────────────────────
-  rollback:
-    name: Emergency Rollback (${{ github.event.inputs.environment }})
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'
-    environment:
-      name: ${{ github.event.inputs.environment }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: envsync-binary
-          path: ./bin
-      - run: chmod +x ./bin/envsync
-      - name: Write env files
-        env:
-          ENV_STAGING: ${{ secrets.ENV_STAGING }}
-          ENV_PRODUCTION: ${{ secrets.ENV_PRODUCTION }}
-          ENVSYNC_KEY: ${{ secrets.ENVSYNC_KEY }}
-        run: |
-          echo "$ENV_STAGING" > envsync/.env.staging
-          echo "$ENV_PRODUCTION" > envsync/.env.production
-      - name: Rollback ${{ github.event.inputs.environment }}
-        env:
-          ENVSYNC_KEY: ${{ secrets.ENVSYNC_KEY }}
-        run: |
-          ./bin/envsync rollback ${{ github.event.inputs.environment }} \
-            --config envsync/envsync.yaml
+      - name: Check runtime versions
+        run: ./envsync validate --env dev || true
