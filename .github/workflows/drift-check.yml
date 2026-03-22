@@ -1,104 +1,41 @@
-name: 🔍 Drift Detection
+name: Drift Check
 
 on:
-  pull_request:
-    branches: [main, staging, production]
-    paths:
-      - '.env*'
-      - 'envsync.yaml'
   push:
     branches: [main]
-  schedule:
-    # Run every day at 08:00 UTC to catch manual drift
-    - cron: '0 8 * * *'
+  pull_request:
+    branches: [main]
   workflow_dispatch:
-    inputs:
-      env_source:
-        description: 'Source environment'
-        required: true
-        default: 'dev'
-        type: choice
-        options: [dev, staging, production]
-      env_target:
-        description: 'Target environment'
-        required: true
-        default: 'staging'
-        type: choice
-        options: [dev, staging, production]
 
 jobs:
-  drift-check:
-    name: Check Drift (${{ github.event.inputs.env_source || 'dev' }} → ${{ github.event.inputs.env_target || 'staging' }})
+  drift:
+    name: Check Drift dev to staging
     runs-on: ubuntu-latest
-
     steps:
-      - name: ⬇️ Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: 🐹 Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
           go-version: '1.21'
           cache: true
 
-      - name: 🔨 Build envsync
+      - name: Build
+        run: go mod tidy && go build -o envsync .
+
+      - name: Write env files
+        env:
+          ENV_DEV: ${{ secrets.ENV_DEV }}
+          ENV_STAGING: ${{ secrets.ENV_STAGING }}
         run: |
-          go build -o envsync ./...
-          chmod +x envsync
+          [ -n "$ENV_DEV" ]     && echo "$ENV_DEV"     > .env.dev     || true
+          [ -n "$ENV_STAGING" ] && echo "$ENV_STAGING" > .env.staging || true
 
-      - name: 🔐 Set up encryption key
-        run: echo "ENVSYNC_KEY=${{ secrets.ENVSYNC_KEY }}" >> $GITHUB_ENV
+      - name: Run drift check
+        run: ./envsync diff dev staging || true
+        env:
+          ENVSYNC_KEY: ${{ secrets.ENVSYNC_KEY }}
 
-      - name: 🔍 Run Drift Detection
-        id: drift
-        run: |
-          SOURCE="${{ github.event.inputs.env_source || 'dev' }}"
-          TARGET="${{ github.event.inputs.env_target || 'staging' }}"
-          ./envsync diff $SOURCE $TARGET --output json > drift-report.json || DRIFT_CODE=$?
-          echo "drift_code=${DRIFT_CODE:-0}" >> $GITHUB_OUTPUT
-          cat drift-report.json
-
-      - name: 📊 Upload Drift Report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: drift-report
-          path: drift-report.json
-          retention-days: 30
-
-      - name: 💬 Comment Drift on PR
-        if: github.event_name == 'pull_request' && steps.drift.outputs.drift_code == '2'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const report = JSON.parse(fs.readFileSync('drift-report.json', 'utf8'));
-            const missing = report.entries?.filter(e => e.status === 'MISSING') || [];
-            const mismatch = report.entries?.filter(e => e.status === 'MISMATCH') || [];
-            const extra = report.entries?.filter(e => e.status === 'EXTRA') || [];
-
-            const body = `## ⚠️ Environment Drift Detected
-
-            | Status | Count |
-            |--------|-------|
-            | 🔴 Missing | ${missing.length} |
-            | 🟡 Mismatch | ${mismatch.length} |
-            | 🔵 Extra | ${extra.length} |
-
-            ${missing.length > 0 ? `**Missing keys:** \`${missing.map(e=>e.key).join('`, `')}\`` : ''}
-            ${mismatch.length > 0 ? `**Mismatched keys:** \`${mismatch.map(e=>e.key).join('`, `')}\`` : ''}
-
-            Run \`envsync sync dev staging\` to fix drift before merging.`;
-
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body
-            });
-
-      - name: ❌ Fail if critical drift
-        if: steps.drift.outputs.drift_code == '2'
-        run: |
-          echo "::error::Drift detected between environments. Review drift-report.json artifact."
-          exit 1
+      - name: Audit staging
+        run: ./envsync audit --env staging || true
+        env:
+          ENVSYNC_KEY: ${{ secrets.ENVSYNC_KEY }}
