@@ -1,7 +1,7 @@
 # envsync.yaml — Environment Synchronization Configuration
 version: "1"
 
-# Source of truth: every environment MUST have all keys defined here
+# Source of truth: keys defined here are what every env MUST have
 source_of_truth: .env.example
 
 environments:
@@ -20,20 +20,20 @@ environments:
     path: .env.production
     format: dotenv
 
-  # SSH example (uncomment and fill in for real remote server)
-  # staging_server:
+  # Example: SSH remote
+  # staging_remote:
   #   type: ssh
   #   remote:
-  #     host: staging.mycompany.com
+  #     host: staging.example.com
   #     user: deploy
-  #     key_file: ~/.ssh/deploy_key
+  #     key_file: ~/.ssh/id_rsa
 
-  # AWS SSM Parameter Store (uncomment for AWS-backed secrets)
-  # prod_aws:
+  # Example: AWS SSM Parameter Store
+  # production_aws:
   #   type: aws_ssm
   #   remote:
   #     region: us-east-1
-  #     profile: myapp-production
+  #     profile: myapp-prod
   #     vault_path: /myapp/production/
 
 runtimes:
@@ -42,15 +42,13 @@ runtimes:
   # go: "1.21"
 
 secrets:
-  encryption_key_env: ENVSYNC_KEY  # Set: export ENVSYNC_KEY=$(openssl rand -base64 32)
+  encryption_key_env: ENVSYNC_KEY   # export ENVSYNC_KEY=$(openssl rand -base64 32)
   redacted_keys:
     - PASSWORD
     - SECRET
     - TOKEN
     - KEY
     - PRIVATE
-    - CREDENTIAL
-    - AUTH
 
 snapshots:
   directory: .envsync/snapshots

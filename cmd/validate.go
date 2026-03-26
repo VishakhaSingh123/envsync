@@ -1,123 +1,88 @@
-package cmd
+import sys
+import subprocess
+import click
+from colorama import Fore
+from core.parser import load_config, scaffold_config
+from commands.root import cli, print_banner, success, info
 
-import (
-	"fmt"
-	"os/exec"
-	"strings"
 
-	"github.com/envsync/internal/parser"
-	"github.com/fatih/color"
-	"github.com/spf13/cobra"
-)
+def get_installed_version(runtime):
+    commands = {
+        "node": ["node", "--version"],
+        "python": ["python3", "--version"],
+        "python3": ["python3", "--version"],
+        "go": ["go", "version"],
+        "ruby": ["ruby", "--version"],
+        "java": ["java", "-version"],
+    }
+    cmd = commands.get(runtime, [runtime, "--version"])
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        output = (result.stdout or result.stderr).strip()
+        for part in output.split():
+            part = part.lstrip("v")
+            if part and part[0].isdigit():
+                return part
+        return output
+    except FileNotFoundError:
+        return None
 
-// ── validate ──────────────────────────────────────────────────────────────────
 
-var validateCmd = &cobra.Command{
-	Use:   "validate",
-	Short: "Validate runtime versions against required spec",
-	Long: `Check that installed runtime versions match the versions defined
-in envsync.yaml under the 'runtimes' section.
+def version_matches(installed, required):
+    installed = installed.lstrip("v")
+    required = required.lstrip("v")
+    return installed.startswith(required)
 
-Examples:
-  envsync validate --env dev
-  envsync validate --env staging`,
-	Run: runValidate,
-}
 
-var validateEnv string
+@cli.command()
+@click.option("--env", default="dev", help="Environment to validate")
+@click.pass_context
+def validate(ctx, env):
+    """Validate runtime versions against required spec"""
 
-func init() {
-	validateCmd.Flags().StringVar(&validateEnv, "env", "dev", "Environment to validate")
-}
+    config_path = ctx.obj["config_path"]
+    print_banner(f"Runtime Validation: {env}")
 
-func runValidate(cmd *cobra.Command, args []string) {
-	configPath, _ := cmd.Root().PersistentFlags().GetString("config")
+    try:
+        config = load_config(config_path)
+    except Exception as e:
+        print(Fore.RED + f"✗ Failed to load config: {e}")
+        sys.exit(1)
 
-	printBanner(fmt.Sprintf("Runtime Validation: %s", validateEnv))
+    runtimes = config.get("runtimes", {})
+    if not runtimes:
+        info("No runtimes defined in envsync.yaml. Skipping.")
+        return
 
-	cfg, err := parser.LoadConfig(configPath)
-	if err != nil {
-		exitErr("Failed to load config", err)
-	}
+    all_pass = True
+    for runtime, required in runtimes.items():
+        installed = get_installed_version(runtime)
+        if not installed:
+            print(Fore.RED + f"  ✗ {runtime:<12} required: {required:<12} installed: not found")
+            all_pass = False
+        elif version_matches(installed, required):
+            print(Fore.GREEN + f"  ✔ {runtime:<12} required: {required:<12} installed: {installed}")
+        else:
+            print(Fore.RED + f"  ✗ {runtime:<12} required: {required:<12} installed: {installed}")
+            all_pass = False
 
-	if cfg.Runtimes == nil || len(cfg.Runtimes) == 0 {
-		info("No runtimes defined in envsync.yaml. Skipping.")
-		return
-	}
+    print()
+    if all_pass:
+        success("All runtime versions match!")
+    else:
+        print(Fore.RED + "✗ Runtime version mismatch detected.")
 
-	allPass := true
-	for runtime, required := range cfg.Runtimes {
-		installed, err := getInstalledVersion(runtime)
-		if err != nil {
-			color.Red("  ✗ %-12s required: %-12s installed: not found\n", runtime, required)
-			allPass = false
-			continue
-		}
 
-		if versionMatches(installed, required) {
-			color.Green("  ✔ %-12s required: %-12s installed: %s\n", runtime, required, installed)
-		} else {
-			color.Red("  ✗ %-12s required: %-12s installed: %s\n", runtime, required, installed)
-			allPass = false
-		}
-	}
+@cli.command("init")
+@click.pass_context
+def init_cmd(ctx):
+    """Scaffold a new envsync.yaml config file"""
 
-	fmt.Println()
-	if allPass {
-		success("All runtime versions match!")
-	} else {
-		color.Red("✗ Runtime version mismatch detected.\n")
-	}
-}
-
-func getInstalledVersion(runtime string) (string, error) {
-	var out []byte
-	var err error
-	switch runtime {
-	case "node":
-		out, err = exec.Command("node", "--version").Output()
-	case "python", "python3":
-		out, err = exec.Command("python3", "--version").Output()
-	case "go":
-		out, err = exec.Command("go", "version").Output()
-	case "ruby":
-		out, err = exec.Command("ruby", "--version").Output()
-	case "java":
-		out, err = exec.Command("java", "-version").CombinedOutput()
-	default:
-		out, err = exec.Command(runtime, "--version").Output()
-	}
-	if err != nil {
-		return "", err
-	}
-	parts := strings.Fields(strings.TrimSpace(string(out)))
-	for _, p := range parts {
-		if len(p) > 0 && (p[0] == 'v' || (p[0] >= '0' && p[0] <= '9')) {
-			return strings.TrimPrefix(p, "v"), nil
-		}
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
-func versionMatches(installed, required string) bool {
-	installed = strings.TrimPrefix(installed, "v")
-	required = strings.TrimPrefix(required, "v")
-	// Prefix match: "20" matches "20.11.1"
-	return strings.HasPrefix(installed, required)
-}
-
-// ── init ──────────────────────────────────────────────────────────────────────
-
-var initCmd = &cobra.Command{
-	Use:   "init",
-	Short: "Scaffold a new envsync.yaml config file",
-	Run: func(cmd *cobra.Command, args []string) {
-		printBanner("Init EnvSync Project")
-		err := parser.ScaffoldConfig("envsync.yaml")
-		if err != nil {
-			exitErr("Failed to scaffold config", err)
-		}
-		success("Created envsync.yaml")
-		info("Edit this file to point to your environment sources, then run: envsync audit --env dev")
-	},
-}
+    print_banner("Init EnvSync Project")
+    try:
+        scaffold_config("envsync.yaml")
+        success("Created envsync.yaml")
+        info("Edit this file then run: python main.py audit --env dev")
+    except Exception as e:
+        print(Fore.RED + f"✗ Failed to scaffold config: {e}")
+        sys.exit(1)
