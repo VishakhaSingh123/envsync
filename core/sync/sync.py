@@ -18,7 +18,7 @@ def mask_if_sensitive(key, value):
 
 def resolve_conflict(key, src_val, tgt_val):
     print()
-    print(Fore.YELLOW + f"⚡ CONFLICT: {key}")
+    print(Fore.YELLOW + f"CONFLICT: {key}")
     print(Fore.CYAN + f"  [S] Source value: {mask_if_sensitive(key, src_val)}")
     print(Fore.BLUE + f"  [T] Target value: {mask_if_sensitive(key, tgt_val)}")
     print(Fore.WHITE + "  [K] Keep target (skip)")
@@ -68,3 +68,4 @@ def apply(config, target_name, plan):
         current[k] = v
 
     write_environment(config, target_name, current)
+    return len(plan["changes"])

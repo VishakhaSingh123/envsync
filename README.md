@@ -1,412 +1,144 @@
-# Environment Synchronization Tool
+# Environment Synchronization Tool (EnvSync)
 
-## 📄 License
-
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
-
-
-
-Student Name: Vishakha Singh
-Registration No: 23FE10CSE00134
-Course: CSE3253 DevOps [PE6]
-Semester: VI (2025–2026)
-Project Type: DevOps Fundamentals & Ecosystem
-Difficulty: Intermediate
+**Student Name:** Vishakha Singh  
+**Registration No:** 23FE10CSE00134  
+**Course:** CSE3253 DevOps [PE6]  
+**Semester:** VI (2025–2026)  
+**Project Type:** DevOps Fundamentals & Ecosystem  
 
 ---
 
-## 📌 Project Overview
+## Problem Statement
 
-### Problem Statement
-In modern software development, teams maintain multiple environments — Dev, Staging, and Production. Over time, small manual changes cause **configuration drift**, where environments behave differently from each other. This causes the classic *"it works on my machine"* problem, leading to failed deployments, production bugs, and wasted debugging time.
+In software development, teams maintain multiple environments — **Dev**, **Staging**, and **Production**. Over time, manual changes cause **configuration drift** — environments behave differently from each other. This leads to the classic *"it works on my machine"* problem, failed deployments, and production bugs.
 
-The **Environment Synchronization Tool (EnvSync)** solves this by continuously auditing, comparing, and synchronizing environment variables, configuration files, and runtime versions across all environments — ensuring parity throughout the DevOps pipeline.
-
-### Objectives
-- [x] Detect configuration drift between Dev, Staging, and Production environments
-- [x] Securely sync environment variables without exposing secrets in plain text
-- [x] Validate runtime versions (Node, Python, Go, etc.) across environments
-- [x] Auto-snapshot environments before any sync to enable safe rollbacks
-- [x] Integrate with CI/CD pipelines to block deployments when drift exceeds threshold
-- [x] Provide a web dashboard for visual drift monitoring and one-click sync
-
-### Key Features
-- **Drift Detection** — Compare any two environments and get a detailed report showing MISSING, MISMATCH, and EXTRA keys
-- **Secret Management** — AES-256-GCM encryption ensures secrets are never stored in plain text on disk
-- **Runtime Validation** — Verify Node.js, Python, Go versions match the required spec
-- **Auto Snapshot & Rollback** — Automatically snapshots before every sync; rollback with one command
-- **CI/CD Drift Gate** — Blocks deployment if drift count exceeds a configurable threshold
-- **Strict Mode for Production** — Production syncs require explicit approval (PR-style gate)
-- **Web Dashboard** — Visual heatmap, side-by-side diff, snapshot timeline, and sync simulator
+**EnvSync** solves this by comparing and synchronizing environment variables across all environments.
 
 ---
 
-## 🛠️ Technology Stack
+## Features
 
-### Core Technologies
-- **Programming Language:** Go 1.21+
-- **Framework:** Cobra (CLI framework)
-- **Database:** None (file-based state + optional Redis for caching)
-
-### DevOps Tools
-- **Version Control:** Git
-- **CI/CD:** GitHub Actions
-- **Containerization:** Docker
-- **Orchestration:** Kubernetes (manifests included)
-- **Secret Management:** HashiCorp Vault (local dev via Docker)
-- **Monitoring:** Nagios / custom health checks
-- **Configuration Management:** envsync.yaml state file
+| Feature | Description |
+|---------|-------------|
+| **Drift Detection** | Compare two environments and get a report showing MISSING, MISMATCH, and EXTRA keys |
+| **Environment Audit** | Check any environment against a source of truth (`.env.example`) |
+| **Sync** | Copy missing/mismatched keys from one environment to another |
+| **Snapshot & Rollback** | Auto-save environment state before sync; restore if something goes wrong |
+| **Runtime Validation** | Verify Node.js, Python versions match the required spec |
+| **Secret Masking** | Sensitive keys (passwords, tokens) are never displayed in plain text |
+| **AES-256 Encryption** | Snapshots are encrypted using AES-256-GCM |
 
 ---
 
-## 🚀 Getting Started
+## Technology Stack
 
-### Prerequisites
-- [ ] Go 1.21+ — https://go.dev/dl/
-- [ ] Git 2.30+
-- [ ] Docker Desktop v20.10+ (optional, for Vault + dashboard)
-- [ ] VSCode with Go extension (golang.go)
-- [ ] OpenSSL (for generating encryption key)
+| Component | Technology |
+|-----------|------------|
+| Language | Python 3.11+ |
+| CLI Framework | Click |
+| Encryption | cryptography (AES-256-GCM) |
+| Config Format | YAML (PyYAML) |
+| Output Formatting | tabulate, colorama |
 
-### Installation
+---
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/vishakhasingh/devopsprojectenvironmentsynchronizationtool.git
-   cd devopsprojectenvironmentsynchronizationtool
-   ```
+## Project Structure
 
-2. Install Go dependencies:
-   ```bash
-   go mod tidy
-   ```
+```
+envsync/
+│
+├── main.py                    # Entry point — registers all CLI commands
+├── envsync.yaml               # Master config — points to all environments
+├── requirements.txt           # Python dependencies
+├── .gitignore                 # Files to exclude from Git
+│
+├── .env.example               # Source of truth (all required keys)
+├── .env.dev                   # Dev environment variables
+├── .env.staging               # Staging environment variables
+├── .env.production            # Production environment variables
+│
+├── core/                      # Core logic modules
+│   ├── parser/parser.py       # Reads & writes .env, .yaml, .json files
+│   ├── comparator/comparator.py  # Compares two envs, detects drift
+│   ├── crypto/crypto.py       # AES-256-GCM encryption/decryption
+│   ├── sync/sync.py           # Builds sync plan & applies changes
+│   └── snapshot/snapshot.py   # Create, list, restore, prune snapshots
+│
+├── commands/                  # CLI commands (user-facing)
+│   ├── root.py                # Base CLI group + helper functions
+│   ├── diff.py                # `diff` command — compare two envs
+│   ├── sync.py                # `sync` command — sync source → target
+│   ├── audit.py               # `audit` command — check env health
+│   ├── snapshot.py            # `snapshot` command — save env state
+│   ├── rollback.py            # `rollback` command — restore snapshot
+│   └── validate.py            # `validate` command — check runtimes
+│
+└── web/dashboard/index.html   # Web dashboard for visual monitoring
+```
 
-3. Build the binary:
-   ```bash
-   # Linux / macOS
-   go build -o envsync .
+---
 
-   # Windows
-   go build -o envsync.exe .
-   ```
+## Installation & Setup
 
-4. Set encryption key:
-   ```bash
-   # Linux / macOS
-   export ENVSYNC_KEY=$(openssl rand -base64 32)
-
-   # Windows PowerShell
-   $env:ENVSYNC_KEY = [Convert]::ToBase64String((1..32 | ForEach-Object { [byte](Get-Random -Max 256) }))
-   ```
-
-5. Run it:
-   ```bash
-   ./envsync --help
-   ```
-
-### Build and run using Docker:
 ```bash
-docker-compose up --build
+# 1. Install Python dependencies
+pip install -r requirements.txt
+
+# 2. Set encryption key (PowerShell)
+$env:ENVSYNC_KEY = [Convert]::ToBase64String((1..32 | ForEach-Object { [byte](Get-Random -Max 256) }))
+
+# 3. Run the tool
+python main.py --help
 ```
 
-### Access the application:
-- **Web Dashboard:** http://localhost:8080
-- **HashiCorp Vault UI:** http://localhost:8200 (token: root)
+---
 
-### Alternative Installation (Without Docker)
+## Usage Examples
+
 ```bash
-go mod tidy
-go build -o envsync .
-./envsync init
-./envsync audit --env dev
+# Compare dev and staging environments
+python main.py diff dev staging
+
+# Audit dev environment against source of truth
+python main.py audit --env dev
+
+# Sync dev → staging (with preview)
+python main.py sync dev staging --dry-run
+
+# Sync dev → staging (apply changes)
+python main.py sync dev staging --overwrite
+
+# Take a snapshot of staging
+python main.py snapshot staging
+
+# Rollback staging to last snapshot
+python main.py rollback staging
+
+# Validate runtime versions
+python main.py validate --env dev
 ```
 
 ---
 
-## 📁 Project Structure
+## How It Works
 
-```
-devopsprojectenvironmentsynchronizationtool/
-│
-├── README.md                           Main project documentation
-├── .gitignore                          Git ignore file
-├── LICENSE                             MIT License
-│
-├── src/                                Source code
-│   ├── main/                           Main implementation
-│   │   ├── main.go                     Entry point
-│   │   └── config/                     Configuration files
-│   │       └── envsync.yaml            Master config
-│   ├── cmd/                            CLI commands
-│   │   ├── root.go
-│   │   ├── diff.go
-│   │   ├── sync.go
-│   │   ├── audit.go
-│   │   ├── snapshot.go
-│   │   ├── rollback.go
-│   │   └── validate.go
-│   ├── internal/                       Internal packages
-│   │   ├── parser/parser.go
-│   │   ├── comparator/comparator.go
-│   │   ├── crypto/crypto.go
-│   │   ├── sync/sync.go
-│   │   └── snapshot/snapshot.go
-│   └── scripts/
-│       ├── install.sh
-│       └── vault-init.sh
-│
-├── docs/                               Documentation
-│   ├── projectplan.md
-│   ├── designdocument.md
-│   ├── userguide.md
-│   ├── apidocumentation.md
-│   └── screenshots/
-│
-├── infrastructure/                     Infrastructure as Code
-│   ├── docker/
-│   │   ├── Dockerfile
-│   │   └── docker-compose.yml
-│   ├── kubernetes/
-│   │   ├── deployment.yaml
-│   │   ├── service.yaml
-│   │   └── configmap.yaml
-│   ├── puppet/
-│   └── terraform/
-│
-├── pipelines/                          CI/CD Pipeline definitions
-│   ├── Jenkinsfile
-│   ├── .github/workflows/
-│   │   ├── envsync.yml
-│   │   ├── drift-check.yml
-│   │   └── pre-deploy.yml
-│   └── gitlab-ci.yml
-│
-├── tests/
-│   ├── unit/
-│   ├── integration/
-│   └── testdata/
-│
-├── monitoring/
-│   ├── nagios/
-│   ├── alerts/
-│   └── dashboards/
-│
-├── web/dashboard/
-│   └── index.html
-│
-├── presentations/
-│   ├── project-presentation.pptx
-│   └── demo-script.md
-│
-└── deliverables/
-    ├── demo-video.mp4
-    ├── final-report.pdf
-    └── assessment/
-```
+1. **Config Loading** — `envsync.yaml` defines where each environment file lives
+2. **Parsing** — The parser reads `.env` files into key-value dictionaries
+3. **Comparison** — The comparator finds MISSING, MISMATCH, EXTRA, and MATCH keys
+4. **Sync Plan** — For mismatches, user chooses Source/Target/Keep (or `--overwrite`)
+5. **Snapshot** — Before any sync, the current state is saved (encrypted with AES-256)
+6. **Apply** — Changes are written to the target environment file
+7. **Rollback** — If something breaks, restore from the last snapshot
 
 ---
 
-## ⚙️ Configuration
+## Acknowledgments
 
-### Environment Variables
-Create a `.env` file in the root directory:
-
-```env
-APP_ENV=development
-ENVSYNC_KEY=your_generated_key_here
-VAULT_ADDR=http://localhost:8200
-VAULT_TOKEN=root
-REDIS_PASSWORD=envsync-dev
-```
-
-### Key Configuration Files
-1. `envsync.yaml` — Master config pointing to all environments
-2. `docker-compose.yml` — Multi-container setup
-3. `infrastructure/kubernetes/` — K8s deployment files
-4. `.env.example` — Source of truth (all required keys listed here)
+- **Course Instructor:** Mr. Jay Shankar Sharma
+- Built with Python, Click CLI framework, and the cryptography library
 
 ---
 
-## 🔄 CI/CD Pipeline
+## License
 
-### Pipeline Stages
-1. **Code Quality Check** — Go linting, static analysis
-2. **Build** — Compile Go binary, build Docker image
-3. **Test** — Run unit and integration tests
-4. **Security Scan** — Trivy vulnerability scan
-5. **Deploy to Staging** — Auto drift-check + sync + snapshot
-6. **Deploy to Production** — Manual approval required + zero-tolerance audit
-
-
-
-### GitHub Actions Secrets Required
-
-| Secret | Description |
-|--------|-------------|
-| `ENV_DEV` | Contents of `.env.dev` |
-| `ENV_STAGING` | Contents of `.env.staging` |
-| `ENV_PRODUCTION` | Contents of `.env.production` |
-| `ENVSYNC_KEY` | AES-256 encryption key |
-
----
-
-## 🧪 Testing
-
-### Test Types
-- **Unit Tests:** `go test ./...`
-- **Integration Tests:** `go test ./... -tags=integration`
-- **Drift Tests:** `./envsync diff dev staging`
-
-### Running Tests
-```bash
-go test ./... -v -race
-go test ./... -coverprofile=coverage.out
-go tool cover -html=coverage.out
-```
-
-### Test Coverage
-
-| Package | Coverage |
-|---------|---------|
-| internal/comparator | 95% |
-| internal/crypto | 92% |
-| internal/parser | 88% |
-| internal/sync | 85% |
-| internal/snapshot | 90% |
-
----
-
-## 📊 Monitoring & Logging
-
-### Monitoring Setup
-- **Nagios:** System and environment health monitoring
-- **Custom Metrics:** Drift count, sync frequency, snapshot count
-- **Alerts:** Notifications when drift exceeds threshold
-
-### Logging
-- Structured colored terminal logging (INFO, WARN, ERROR)
-- Log retention: 30 days
-
----
-
-## 🐳 Docker & Kubernetes
-
-### Docker Images
-```bash
-# Build image
-docker build -t devopsprojectenvsync:latest .
-
-# Run container
-docker run -p 8080:8080 -e ENVSYNC_KEY=$ENVSYNC_KEY devopsprojectenvsync:latest
-```
-
-### Kubernetes Deployment
-```bash
-# Apply K8s manifests
-kubectl apply -f infrastructure/kubernetes/
-
-# Check deployment status
-kubectl get pods,svc,deploy
-```
-
----
-
-## 📈 Performance Metrics
-
-| Metric | Target | Current |
-|--------|--------|---------|
-| Build Time | < 5 min | ~45 sec |
-| Test Coverage | > 80% | 90% |
-| Deployment Frequency | Daily | On every push |
-| Mean Time to Recovery | < 1 hour | ~2 min (rollback) |
-| Drift Detection Speed | < 1 sec | ~200ms |
-
----
-
-## 📚 Documentation
-
-### User Documentation
-- [User Guide](docs/userguide.md)
-- [API Documentation](docs/apidocumentation.md)
-
-### Technical Documentation
-- [Design Document](docs/designdocument.md)
-- [CI/CD Setup Guide](CICD_SETUP.md)
-
----
-
-### Pipeline Status
-![Pipeline Status](https://img.shields.io/badge/pipeline-passing-brightgreen)
-
-## 🌿 Development Workflow
-
-### Git Branching Strategy
-```
-main
-├── develop
-│   ├── feature/drift-detection
-│   ├── feature/crypto-layer
-│   ├── feature/web-dashboard
-│   └── hotfix/sync-conflict-fix
-└── release/v1.0.0
-```
-
-### Commit Convention
-- `feat:` New feature
-- `fix:` Bug fix
-- `docs:` Documentation
-- `test:` Test-related
-- `refactor:` Code refactoring
-- `chore:` Maintenance tasks
-
----
-
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'feat: add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
-
----
-
-## 💡 Project Challenges
-
-1. **Cross-platform secret encryption** — Solved by using AES-256-GCM with key derived from environment variable, never touching the filesystem
-2. **Conflict resolution during sync** — Solved by building an interactive `[S]ource / [T]arget / [K]eep` prompt and `--overwrite` flag for CI/CD
-3. **Preventing accidental production overwrites** — Solved by Strict Mode + GitHub Environment required reviewers as a two-layer approval gate
-
-## 📖 Learnings
-- How configuration drift causes real-world production incidents and how to detect it programmatically
-- AES-256-GCM encryption in Go and the importance of never persisting decryption keys to disk
-- Building reusable GitHub Actions workflows for DRY CI/CD pipelines
-
----
-
-## 🙏 Acknowledgments
-
-- Course Instructor: **Mr. Jay Shankar Sharma**
-- HashiCorp Vault documentation and open-source community
-- Go standard library and Cobra CLI framework contributors
-- Reference materials and DevOps best practice guides
-
----
-
-## 📬 Contact
-
-**Student:** Vishakha Singh
-
-**GitHub:** https://github.com/vishakhasingh
-**Registration No:** 23FE10CSE00134
-
-**Course Coordinator:** Mr. Jay Shankar Sharma
-**Consultation Hours:** Thursday & Friday, 5–6 PM, LHC 308F
-  
+This project is licensed under the MIT License.

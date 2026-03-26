@@ -5,16 +5,15 @@
 .env.*
 !.env.example
 
-# Built binary
-envsync
-bin/
-dist/
-
 # Snapshots contain encrypted env state
 .envsync/
 
-# Go
-vendor/
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
 
 # OS
 .DS_Store

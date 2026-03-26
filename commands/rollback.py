@@ -19,7 +19,7 @@ def rollback(ctx, env, snap_id):
     try:
         config = load_config(config_path)
     except Exception as e:
-        print(Fore.RED + f"✗ Failed to load config: {e}")
+        print(Fore.RED + f"[ERROR] Failed to load config: {e}")
         sys.exit(1)
 
     warn(f"This will overwrite the current state of '{env}'.")
@@ -32,5 +32,5 @@ def rollback(ctx, env, snap_id):
         success(f"Rollback complete: '{env}' restored to snapshot {snap['id']}")
         info(f"Snapshot was taken at: {snap['created_at'][:19]}")
     except Exception as e:
-        print(Fore.RED + f"✗ Rollback failed: {e}")
+        print(Fore.RED + f"[ERROR] Rollback failed: {e}")
         sys.exit(1)
