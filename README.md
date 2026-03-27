@@ -80,6 +80,7 @@ envsync/
 
 ## Installation & Setup
 
+### Method A: Local Python (Traditional)
 ```bash
 # 1. Install Python dependencies
 pip install -r requirements.txt
@@ -91,9 +92,26 @@ $env:ENVSYNC_KEY = [Convert]::ToBase64String((1..32 | ForEach-Object { [byte](Ge
 python main.py --help
 ```
 
+### Method B: Docker (Recommended)
+No local Python installation required! We use a Docker Volume Mount to sync your local `.env` files.
+```bash
+# 1. Build the image
+docker-compose build
+
+# 2. Run the tool (Linux/macOS)
+export ENVSYNC_KEY="your_32_character_secret_key_here_"
+docker-compose run --rm envsync --help
+
+# Or on Windows PowerShell:
+$env:ENVSYNC_KEY="your_32_character_secret_key_here_"
+docker-compose run --rm envsync --help
+```
+
 ---
 
 ## Usage Examples
+
+> **Note:** If using Docker, simply replace `python main.py` in the examples below with `docker-compose run --rm envsync`.
 
 ```bash
 # Compare dev and staging environments
@@ -129,6 +147,17 @@ python main.py validate --env dev
 5. **Snapshot** — Before any sync, the current state is saved (encrypted with AES-256)
 6. **Apply** — Changes are written to the target environment file
 7. **Rollback** — If something breaks, restore from the last snapshot
+
+---
+
+## CI/CD Pipeline
+
+This project includes a **GitHub Actions** CI/CD pipeline integrated via `.github/workflows/ci.yml`.  
+Every time code is pushed or a Pull Request is opened, the pipeline automatically:
+1. Provisions an Ubuntu environment.
+2. Sets up **Python 3.11** with dependency caching.
+3. Installs requirements and verifies the CLI runs without import or syntax errors.
+4. Builds the **Docker Image** to ensure the `Dockerfile` integrity is maintained.
 
 ---
 

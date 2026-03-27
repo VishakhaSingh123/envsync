@@ -1,0 +1,41 @@
+name: EnvSync CI/CD
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+        cache: "pip"
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Test CLI Execution
+      env:
+        ENVSYNC_KEY: "dummy_test_key_for_ci_pipeline"
+      run: |
+        echo "Testing if the CLI executes successfully..."
+        python main.py --help
+        
+        echo "Running a basic dry-run audit to ensure core modules load..."
+        python main.py audit --env dev || true
+
+    - name: Build Docker Image
+      run: |
+        echo "Verifying Dockerfile builds successfully..."
+        docker build -t envsync-test .

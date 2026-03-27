@@ -1,0 +1,11 @@
+version: "3.8"
+
+services:
+  envsync:
+    build: .
+    # We must mount the current directory to /app so EnvSync can read/write local .env files
+    volumes:
+      - .:/app
+    environment:
+      # Use the host's ENVSYNC_KEY if set, otherwise fallback to the default below
+      - ENVSYNC_KEY=${ENVSYNC_KEY:-docker_fallback_key_32_bytes_long}
