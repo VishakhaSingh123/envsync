@@ -1,0 +1,71 @@
+name: Drift Check
+
+on:
+  push:
+    branches:
+      - '**'
+
+jobs:
+  drift-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install python-dotenv
+
+      - name: Write Dev and Staging env files
+        run: |
+          echo "${{ secrets.ENV_DEV }}" > .env.dev
+          echo "${{ secrets.ENV_STAGING }}" > .env.staging
+
+      - name: Run Drift Check
+        run: |
+          python - <<'EOF'
+          import os
+
+          def load_keys(filepath):
+              keys = set()
+              if not os.path.exists(filepath):
+                  return keys
+              with open(filepath) as f:
+                  for line in f:
+                      line = line.strip()
+                      if line and not line.startswith('#') and '=' in line:
+                          keys.add(line.split('=')[0].strip())
+              return keys
+
+          dev_keys = load_keys('.env.dev')
+          staging_keys = load_keys('.env.staging')
+
+          missing_in_staging = dev_keys - staging_keys
+          missing_in_dev = staging_keys - dev_keys
+
+          drift_count = len(missing_in_staging) + len(missing_in_dev)
+
+          print(f"Keys in dev but missing in staging: {missing_in_staging}")
+          print(f"Keys in staging but missing in dev: {missing_in_dev}")
+          print(f"Total drift count: {drift_count}")
+
+          threshold = int(os.environ.get('DRIFT_THRESHOLD', '0'))
+          if drift_count > threshold:
+              print(f"DRIFT EXCEEDED threshold ({threshold}). Failing pipeline.")
+              exit(1)
+          else:
+              print("Drift within acceptable range. Pipeline passed.")
+          EOF
+        env:
+          DRIFT_THRESHOLD: '0'
+
+      - name: Cleanup env files
+        if: always()
+        run: |
+          rm -f .env.dev .env.staging
