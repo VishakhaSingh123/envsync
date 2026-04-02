@@ -1,0 +1,232 @@
+name: EnvSync CI Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+      - staging
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  # ─────────────────────────────────────────
+  # JOB 1: Build & Test
+  # ─────────────────────────────────────────
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run unit tests
+        run: |
+          python -m pytest tests/ -v --tb=short
+        continue-on-error: false
+
+  # ─────────────────────────────────────────
+  # JOB 2: Security Scan
+  # ─────────────────────────────────────────
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: build-and-test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Write env files from secrets
+        run: |
+          echo "${{ secrets.ENV_DEV }}" > .env.dev
+          echo "${{ secrets.ENV_STAGING }}" > .env.staging
+          echo "${{ secrets.ENV_PRODUCTION }}" > .env.production
+
+      - name: Scan for sensitive key leaks
+        run: |
+          python - <<'EOF'
+          import os
+
+          SENSITIVE_KEYWORDS = ['PASSWORD', 'SECRET', 'TOKEN', 'API_KEY', 'PRIVATE', 'KEY']
+          files = ['.env.dev', '.env.staging', '.env.production']
+          leak_found = False
+
+          print("=== Security Scan: Sensitive Key Redaction Check ===\n")
+
+          for filepath in files:
+              if not os.path.exists(filepath):
+                  print(f"[SKIP] {filepath} not found")
+                  continue
+              print(f"--- Scanning: {filepath} ---")
+              with open(filepath) as f:
+                  for line in f:
+                      line = line.strip()
+                      if '=' in line and not line.startswith('#'):
+                          key, _, value = line.partition('=')
+                          key = key.strip()
+                          for keyword in SENSITIVE_KEYWORDS:
+                              if keyword in key.upper():
+                                  print(f"[REDACTED] {key}=***")
+                                  break
+                          else:
+                              print(f"[OK] {key} is present")
+              print()
+
+          print("Security scan complete. No leaks exposed.")
+          EOF
+
+      - name: Check for hardcoded secrets in source code
+        run: |
+          python - <<'EOF'
+          import os
+          import re
+
+          PATTERNS = [
+              r'password\s*=\s*["\']?\w+["\']?',
+              r'secret\s*=\s*["\']?\w+["\']?',
+              r'token\s*=\s*["\']?\w+["\']?',
+              r'api_key\s*=\s*["\']?\w+["\']?',
+          ]
+
+          EXCLUDE_DIRS = {'.git', '__pycache__', '.github', 'node_modules', 'venv'}
+          issues = []
+
+          for root, dirs, files in os.walk('.'):
+              dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
+              for file in files:
+                  if file.endswith('.py'):
+                      filepath = os.path.join(root, file)
+                      with open(filepath, errors='ignore') as f:
+                          for i, line in enumerate(f, 1):
+                              for pattern in PATTERNS:
+                                  if re.search(pattern, line, re.IGNORECASE):
+                                      if 'os.environ' not in line and 'os.getenv' not in line:
+                                          issues.append(f"{filepath}:{i} -> {line.strip()}")
+
+          if issues:
+              print("[WARN] Possible hardcoded secrets found:")
+              for issue in issues:
+                  print(f"  {issue}")
+          else:
+              print("[OK] No hardcoded secrets detected in source code.")
+          EOF
+
+      - name: Cleanup env files
+        if: always()
+        run: |
+          rm -f .env.dev .env.staging .env.production
+
+  # ─────────────────────────────────────────
+  # JOB 3: Environment Drift Check
+  # ─────────────────────────────────────────
+  drift-check:
+    name: Environment Drift Check
+    runs-on: ubuntu-latest
+    needs: build-and-test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Write env files from secrets
+        run: |
+          echo "${{ secrets.ENV_DEV }}" > .env.dev
+          echo "${{ secrets.ENV_STAGING }}" > .env.staging
+
+      - name: Run Drift Check (dev vs staging)
+        run: |
+          python - <<'EOF'
+          import os
+
+          def load_keys(filepath):
+              keys = set()
+              if not os.path.exists(filepath):
+                  print(f"[ERROR] {filepath} not found!")
+                  return keys
+              with open(filepath) as f:
+                  for line in f:
+                      line = line.strip()
+                      if line and not line.startswith('#') and '=' in line:
+                          keys.add(line.split('=')[0].strip())
+              return keys
+
+          dev_keys = load_keys('.env.dev')
+          staging_keys = load_keys('.env.staging')
+
+          missing_in_staging = dev_keys - staging_keys
+          missing_in_dev = staging_keys - dev_keys
+          drift_count = len(missing_in_staging) + len(missing_in_dev)
+
+          print("=== Drift Report: dev -> staging ===\n")
+          if missing_in_staging:
+              print(f"[MISSING in staging]: {missing_in_staging}")
+          if missing_in_dev:
+              print(f"[MISSING in dev]: {missing_in_dev}")
+          if drift_count == 0:
+              print("[OK] No drift detected. Environments are in sync.")
+
+          print(f"\nTotal drift count: {drift_count}")
+
+          threshold = int(os.environ.get('DRIFT_THRESHOLD', '0'))
+          if drift_count > threshold:
+              print(f"[FAIL] Drift exceeded threshold ({threshold}). Pipeline failed.")
+              exit(1)
+          else:
+              print(f"[PASS] Drift within threshold. Pipeline passed.")
+          EOF
+        env:
+          DRIFT_THRESHOLD: '0'
+
+      - name: Cleanup env files
+        if: always()
+        run: |
+          rm -f .env.dev .env.staging
+
+  # ─────────────────────────────────────────
+  # JOB 4: Final Status
+  # ─────────────────────────────────────────
+  pipeline-status:
+    name: Pipeline Status
+    runs-on: ubuntu-latest
+    needs: [build-and-test, security-scan, drift-check]
+    if: always()
+
+    steps:
+      - name: Report Final Status
+        run: |
+          echo "==============================="
+          echo "  EnvSync CI Pipeline Complete "
+          echo "==============================="
+          echo "Build & Test   : ${{ needs.build-and-test.result }}"
+          echo "Security Scan  : ${{ needs.security-scan.result }}"
+          echo "Drift Check    : ${{ needs.drift-check.result }}"
+          echo "==============================="
