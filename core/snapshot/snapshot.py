@@ -12,7 +12,7 @@ def snapshot_dir(config, env_name):
 
 def create(config, env_name):
     env = load_environment(config, env_name)
-    snap_id = f"snap_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    snap_id = f"snap_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
     directory = snapshot_dir(config, env_name)
     os.makedirs(directory, mode=0o700, exist_ok=True)
 
