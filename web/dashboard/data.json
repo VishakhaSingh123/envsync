@@ -1,0 +1,79 @@
+{
+  "generated_at": "2026-08-21T14:56:53.741427",
+  "environments": {
+    "dev": {
+      "keys": {
+        "APP_ENV": "development",
+        "DB_HOST": "localhost",
+        "DB_PORT": "5432",
+        "SECRET_KEY": "dev123"
+      }
+    },
+    "staging": {
+      "keys": {
+        "APP_ENV": "development",
+        "DB_HOST": "localhost",
+        "DB_PORT": "5432",
+        "SECRET_KEY": "dev123"
+      }
+    },
+    "production": {
+      "keys": {
+        "APP_NAME": "myapp",
+        "APP_ENV": "production",
+        "APP_PORT": "3000",
+        "APP_URL": "https://myapp.com",
+        "LOG_LEVEL": "warn",
+        "DB_HOST": "prod-db.myapp.internal",
+        "DB_PORT": "5432",
+        "DB_NAME": "myapp_production",
+        "DB_USER": "app_user",
+        "DB_PASSWORD": "CHANGE_ME_PROD_SECRET",
+        "REDIS_HOST": "prod-redis.myapp.internal",
+        "REDIS_PORT": "6379",
+        "REDIS_PASSWORD": "CHANGE_ME_PROD_REDIS",
+        "JWT_SECRET": "CHANGE_ME_PROD_JWT",
+        "JWT_EXPIRES_IN": "7d",
+        "STRIPE_SECRET_KEY": "sk_live_CHANGE_ME",
+        "SENDGRID_API_KEY": "SG.CHANGE_ME",
+        "AWS_ACCESS_KEY_ID": "CHANGE_ME",
+        "AWS_SECRET_ACCESS_KEY": "CHANGE_ME",
+        "AWS_REGION": "us-east-1",
+        "ENABLE_SIGNUPS": "true",
+        "ENABLE_PAYMENTS": "true",
+        "MAINTENANCE_MODE": "false"
+      }
+    }
+  },
+  "snapshots": [
+    {
+      "id": "snap_20260402_135841",
+      "env": "staging",
+      "ts": "2026-04-02T13:58:41.848056",
+      "keys": 4,
+      "note": ""
+    },
+    {
+      "id": "snap_20260402_132750",
+      "env": "staging",
+      "ts": "2026-04-02T13:27:50.378191",
+      "keys": 4,
+      "note": ""
+    },
+    {
+      "id": "snap_20260402_132749",
+      "env": "staging",
+      "ts": "2026-04-02T13:27:49.935000",
+      "keys": 3,
+      "note": ""
+    },
+    {
+      "id": "snap_20260330_112006",
+      "env": "staging",
+      "ts": "2026-03-30T11:20:06.831361",
+      "keys": 3,
+      "note": ""
+    }
+  ],
+  "logs": []
+}

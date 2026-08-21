@@ -600,6 +600,9 @@
     color: var(--cyan);
   }
   .modal-footer { display: flex; gap: 10px; justify-content: flex-end; }
+  .data-source { font-size: 11px; padding: 4px 10px; border-radius: 20px; white-space: nowrap; }
+  .data-source.live { color: var(--green, #4ade80); background: rgba(74,222,128,0.1); }
+  .data-source.demo { color: var(--text-dim, #888); background: rgba(136,136,136,0.1); }
 </style>
 </head>
 <body>
@@ -611,6 +614,7 @@
       <div class="logo-icon">⚡</div>
       Env<span>Sync</span>
     </div>
+    <div id="dataSourceBanner" class="data-source demo"></div>
     <div class="env-selector">
       <label>Compare:</label>
       <select id="srcEnv" onchange="refreshDiff()">
@@ -671,7 +675,9 @@
 
 <script>
 // ── Data ─────────────────────────────────────────────────────────────────────
-const DATA = {
+// DEMO_DATA is the fallback shown when no live export (data.json) is available,
+// e.g. when opening this file directly without running `envsync export` first.
+const DEMO_DATA = {
   environments: {
     dev: {
       keys: {
@@ -734,6 +740,9 @@ const DATA = {
     { time: "07:54:01", msg: "⚡ Sync initiated: dev → staging", cls: "info" },
   ]
 };
+
+// DATA starts as the demo dataset and is swapped for live CLI output by loadData().
+let DATA = DEMO_DATA;
 
 const SENSITIVE = ['PASSWORD','SECRET','TOKEN','KEY','PRIVATE','CREDENTIAL','AUTH'];
 function isSensitive(k) { return SENSITIVE.some(s => k.toUpperCase().includes(s)); }
@@ -1253,7 +1262,39 @@ function exportReport() {
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-render();
+// Tries to load real CLI output exported via `python main.py export`.
+// Falls back to DEMO_DATA (unchanged behavior) if data.json isn't present —
+// e.g. when this file is opened directly instead of served, or export hasn't run yet.
+let usingLiveData = false;
+
+async function loadData() {
+  try {
+    const res = await fetch('./data.json', { cache: 'no-store' });
+    if (res.ok) {
+      const live = await res.json();
+      if (live && live.environments && Object.keys(live.environments).length) {
+        DATA = {
+          environments: live.environments,
+          snapshots: live.snapshots || [],
+          logs: (live.logs && live.logs.length) ? live.logs : DEMO_DATA.logs
+        };
+        usingLiveData = true;
+      }
+    }
+  } catch (e) {
+    // No server (file:// open) or data.json missing — silently use demo data.
+  }
+  render();
+  const banner = document.getElementById('dataSourceBanner');
+  if (banner) {
+    banner.textContent = usingLiveData
+      ? '● Live data (from envsync export)'
+      : '○ Demo data — run `python main.py export` to see your real environments';
+    banner.className = usingLiveData ? 'data-source live' : 'data-source demo';
+  }
+}
+
+loadData();
 </script>
 </body>
 </html>
